@@ -6,10 +6,9 @@ from setuptools import setup
 import catenae
 
 setup(
-    name='catenae',
+    name='catenae3',
     version=catenae.__version__,
-    description=
-    'Catenae is a Python framework for easily design, develop and deploy Stream Processing applications with Docker containers',
+    description='Catenae 3 – Microservices Framework for Stopover',
     url='https://github.com/catenae',
     author='Rodrigo Martínez',
     author_email='dev@brunneis.com',

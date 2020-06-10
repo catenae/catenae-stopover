@@ -12,6 +12,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-FROM catenae/foundation
+FROM catenae/stopover-foundation
 ADD catenae.tar /opt/catenae
 RUN python setup.py install
