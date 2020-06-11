@@ -7,7 +7,7 @@ import logging
 
 class Callback:
 
-    COMMIT_KAFKA_MESSAGE = 0
+    COMMIT_STOPOVER_MESSAGE = 0
 
     def __init__(self, target=None, args=None, kwargs=None, mode=None):
         self.target = target
@@ -50,7 +50,7 @@ class Callback:
             logging.error('callback without target.')
             return
 
-        if self.mode == self.COMMIT_KAFKA_MESSAGE:
+        if self.mode == self.COMMIT_STOPOVER_MESSAGE:
             self._execute_kafka_commit()
             return
 

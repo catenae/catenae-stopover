@@ -11,40 +11,32 @@
 #        ◼◼◼      ◼◼◼            ◼◼◼     ◼◼           ◼◼◼           ◼◼◼      ◼◼◼◼   ◼◼◼            ◼◼◼      ◼◼◼
 #          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼
 #
-# Catenae 2.0.0 Beryllium
-# Copyright (C) 2017-2019 Rodrigo Martínez Castaño
+# Catenae 3.0.0 Graphene
+# Copyright (C) 2017-2020 Rodrigo Martínez Castaño
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# TODO -> ELIMINAR SYNC MODE (SIEMPRE SYNC)
 
 import catenae
 import math
 from threading import Lock, current_thread
-from multiprocessing import Pipe
-from pickle5 import pickle
+import pickle
 import time
 import argparse
 from os import environ
-from confluent_kafka import Producer, Consumer, KafkaError
 import signal
-from urllib.request import urlopen, Request
-from urllib.error import HTTPError
-from socket import timeout
 import json
-import eventlet
-from easyaerospike import AerospikeConnector
-from easymongo import MongodbConnector
-from easyrocks import DB as RocksDB
 from . import utils
 from . import errors
 from .electron import Electron
@@ -53,8 +45,8 @@ from .logger import Logger
 from .custom_queue import ThreadingQueue
 from .custom_threading import Thread, ThreadPool
 from .custom_multiprocessing import Process
-from .json_rpc import JsonRPC
 from .structures import CircularOrderedSet
+from stopover import Sender, Receiver, Message
 
 _rpc_enabled_methods = set()
 
@@ -82,7 +74,7 @@ def suicide_on_error(method):
 
 class Link:
 
-    CONSUMER_POLL_TIMEOUT = 0.5
+    RECEIVER_POLL_TIMEOUT = 0.5
     QUEUE_GET_TIMEOUT = 0.5
     INSTANCE_TIMEOUT = 3
     SUICIDE_TIMEOUT = 10
@@ -102,17 +94,14 @@ class Link:
                  exp_window_size=900,
                  synchronous=False,
                  sequential=False,
-                 uid_consumer_group=False,
+                 uid_receiver=False,
                  num_rpc_threads=1,
                  num_main_threads=1,
-                 input_topics=None,
-                 output_topics=None,
-                 kafka_endpoint=None,
-                 consumer_group=None,
-                 consumer_timeout=300,
-                 aerospike_endpoint=None,
-                 mongodb_endpoint=None,
-                 rocksdb_path=None):
+                 input_streams=None,
+                 output_streams=None,
+                 stopover_endpoint=None,
+                 receiver=None,
+                 receiver_timeout=300):
 
         # Preserve the id if the container restarts
         if 'CATENAE_DOCKER' in environ \
@@ -130,55 +119,34 @@ class Link:
 
         self._started = False
         self._stopped = False
-        self._input_topics_lock = Lock()
+        self._input_streams_lock = Lock()
         self._rpc_lock = Lock()
         self._start_stop_lock = Lock()
         self._instances_lock = Lock()
 
-        # RPC topics
-        self._rpc_instance_topic = f'catenae_rpc_{self._uid}'
-        self._rpc_group_topic = f'catenae_rpc_{self._class_id}'
-        self._rpc_broadcast_topic = 'catenae_rpc_broadcast'
-        self._rpc_topics = [self._rpc_instance_topic, self._rpc_group_topic, self._rpc_broadcast_topic]
+        # RPC streams
+        self._rpc_instance_stream = f'catenae_rpc_{self._uid}'
+        self._rpc_group_stream = f'catenae_rpc_{self._class_id}'
+        self._rpc_broadcast_stream = 'catenae_rpc_broadcast'
+        self._rpc_streams = [self._rpc_instance_stream, self._rpc_group_stream, self._rpc_broadcast_stream]
         self._known_message_ids = CircularOrderedSet(50)
 
         self._load_args()
         self._set_execution_opts(input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
-                                 num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout)
-        self._set_connectors_properties(aerospike_endpoint, mongodb_endpoint, rocksdb_path)
-        self._set_consumer_group(consumer_group, uid_consumer_group)
-        self._set_jsonrpc_props()
+                                 num_main_threads, input_streams, output_streams, stopover_endpoint, receiver_timeout)
+        self._set_receiver(receiver, uid_receiver)
 
         self._input_messages = ThreadingQueue()
         self._output_messages = ThreadingQueue()
-        self._jsonrpc_conn1, self._jsonrpc_conn2 = Pipe()
-        self._changed_input_topics = False
+        self._changed_input_streams = False
 
         self._instances = {'by_uid': dict(), 'by_group': dict()}
         self._known_instances = dict()
         self._safe_stop_threads = list()
 
     @suicide_on_error
-    def _set_connectors_properties(self, aerospike_endpoint, mongodb_endpoint, rocksdb_path):
-        self._set_aerospike_properties(aerospike_endpoint)
-        if hasattr(self, '_aerospike_host'):
-            self.logger.log(f'aerospike_host: {self._aerospike_host}')
-        if hasattr(self, '_aerospike_port'):
-            self.logger.log(f'aerospike_port: {self._aerospike_port}')
-
-        self._set_mongodb_properties(mongodb_endpoint)
-        if hasattr(self, '_mongodb_host'):
-            self.logger.log(f'mongodb_host: {self._mongodb_host}')
-        if hasattr(self, '_mongodb_port'):
-            self.logger.log(f'mongodb_port: {self._mongodb_port}')
-
-        self._set_rocksdb_properties(rocksdb_path)
-        if hasattr(self, '_rocksdb_path'):
-            self.logger.log(f'rocksdb_path: {self._rocksdb_path}')
-
-    @suicide_on_error
     def _set_execution_opts(self, input_mode, exp_window_size, synchronous, sequential, num_rpc_threads,
-                            num_main_threads, input_topics, output_topics, kafka_endpoint, consumer_timeout):
+                            num_main_threads, input_streams, output_streams, stopover_endpoint, receiver_timeout):
 
         if not hasattr(self, '_input_mode'):
             self._input_mode = input_mode
@@ -225,34 +193,34 @@ class Link:
         self.logger.log(f'num_rpc_threads: {self._num_rpc_threads}')
         self.logger.log(f'num_main_threads: {self._num_main_threads}')
 
-        if not self._input_topics:
-            self._input_topics = input_topics
-        self.logger.log(f'input_topics: {self._input_topics}')
+        if not self._input_streams:
+            self._input_streams = input_streams
+        self.logger.log(f'input_streams: {self._input_streams}')
 
-        if not self._output_topics:
-            self._output_topics = output_topics
-        self.logger.log(f'output_topics: {self._output_topics}')
+        if not self._output_streams:
+            self._output_streams = output_streams
+        self.logger.log(f'output_streams: {self._output_streams}')
 
-        if not self._kafka_endpoint:
-            self._kafka_endpoint = kafka_endpoint
-        self.logger.log(f'kafka_endpoint: {self._kafka_endpoint}')
+        if not self._stopover_endpoint:
+            self._stopover_endpoint = stopover_endpoint
+        self.logger.log(f'stopover_endpoint: {self._stopover_endpoint}')
 
-        if not hasattr(self, '_consumer_timeout'):
-            self._consumer_timeout = consumer_timeout
-        self.logger.log(f'consumer_timeout: {self._consumer_timeout}')
-        self._consumer_timeout = self._consumer_timeout * 1000
-
-    @property
-    def input_topics(self):
-        return list(self._input_topics)
+        if not hasattr(self, '_receiver_timeout'):
+            self._receiver_timeout = receiver_timeout
+        self.logger.log(f'receiver_timeout: {self._receiver_timeout}')
+        self._receiver_timeout = self._receiver_timeout * 1000
 
     @property
-    def output_topics(self):
-        return list(self._output_topics)
+    def input_streams(self):
+        return list(self._input_streams)
 
     @property
-    def consumer_group(self):
-        return self._consumer_group
+    def output_streams(self):
+        return list(self._output_streams)
+
+    @property
+    def receiver(self):
+        return self._receiver
 
     @property
     def args(self):
@@ -261,18 +229,6 @@ class Link:
     @property
     def uid(self):
         return self._uid
-
-    @property
-    def aerospike(self):
-        return self._aerospike
-
-    @property
-    def mongodb(self):
-        return self._mongodb
-
-    @property
-    def rocksdb(self):
-        return self._rocksdb
 
     @suicide_on_error
     def _loop_task(self, target, args=None, kwargs=None, interval=0, wait=False, level='debug'):
@@ -318,32 +274,6 @@ class Link:
             self.suicide('SIGQUIT')
 
     @suicide_on_error
-    def _check_instances(self):
-        with self._instances_lock:
-            known_instances = dict(self._known_instances)
-
-        to_add = []
-        to_remove = []
-        for uid, properties in known_instances.items():
-            self.logger.log(f"checking instance availability for {uid}", level='debug')
-
-            group = properties['group']
-            host = properties['host']
-            port = properties['port']
-            scheme = properties['scheme']
-
-            if self._is_endpoint_available(host, port, scheme):
-                to_add.append((uid, group, host, port, scheme))
-            else:
-                to_remove.append((uid, group))
-
-        for instance in to_remove:
-            self._delete_from_known_instances(*instance)
-
-        for instance in to_add:
-            self._add_to_known_instances(*instance)
-
-    @suicide_on_error
     def _delete_from_known_instances(self, uid, group):
         with self._instances_lock:
             if uid in self._instances['by_uid']:
@@ -359,52 +289,6 @@ class Link:
 
             if uid not in self._instances['by_group'][group]:
                 self._instances['by_group'][group].append(uid)
-
-    @suicide_on_error
-    def _rpc_request_monitor(self):
-        with self._rpc_lock:
-            new_data = self._jsonrpc_conn1.poll()
-            if not new_data:
-                return
-
-            is_notification, request = self._jsonrpc_conn1.recv()
-
-            response = dict()
-            error_code = None
-            try:
-                method, kwargs = request
-                output = self._rpc_call(method, kwargs)
-
-                if not isinstance(output, tuple):
-                    response.update({'result': output})
-
-                else:
-                    if len(output) != 2:
-                        raise ValueError
-                    error_code = output[0]
-                    error_message = output[1]
-                    if not isinstance(error_message, str):
-                        raise ValueError
-
-                    response.update({'error': {'code': error_code, 'message': error_message}})
-
-            except errors.InvalidParamsError:
-                error_code = JsonRPC.INVALID_PARAMS
-
-            except errors.MethodNotFoundError:
-                error_code = JsonRPC.METHOD_NOT_FOUND
-
-            except errors.InternalError:
-                error_code = JsonRPC.INTERNAL_ERROR
-
-            finally:
-                if is_notification:
-                    return
-
-            if error_code is not None and 'error' not in response:
-                response.update({'error': {'code': error_code, 'message': JsonRPC.ERROR_CODES[error_code]}})
-
-            self._jsonrpc_conn1.send(response)
 
     @suicide_on_error
     def _is_method_rpc_enabled(self, method):
@@ -430,53 +314,6 @@ class Link:
         except Exception:
             self.logger.log(level='exception')
             raise errors.InternalError
-
-    def rpc_call(self, uid, method, kwargs=None, request_id=None):
-        instance_info = self._instances['by_uid'][uid]
-
-        url = f"{instance_info['scheme']}://{instance_info['host']}:{instance_info['port']}"
-
-        request = {'jsonrpc': '2.0', 'method': method}
-        if kwargs is not None:
-            request.update({'params': kwargs})
-        request.update({'id': request_id})
-        data = bytes(json.dumps(request), 'utf-8')
-
-        result = None
-        try:
-            response_data = urlopen(Request(url=url, data=data)).read().decode('utf-8')
-            result = json.loads(response_data)['result']
-        except HTTPError as error:
-            self.logger.log(f'HTTP error {error.code}', level='error')
-            response_data = error.read().decode('utf-8')
-            result = json.loads(response_data)['result']
-        except timeout:
-            raise errors.TimeoutError
-        except Exception:
-            raise errors.RPCError
-
-        return result
-
-    @suicide_on_error
-    def _it_is_me(self, host, port):
-        if host == self._jsonrpc_props['host'] and \
-           port == self._jsonrpc_props['port']:
-            return True
-        return False
-
-    @suicide_on_error
-    def _is_endpoint_available(self, host, port, scheme):
-        request = {'jsonrpc': '2.0', 'method': 'available', 'id': 0}
-        data = bytes(json.dumps(request), 'utf-8')
-
-        url = f'{scheme}://{host}:{port}'
-
-        try:
-            with eventlet.Timeout(Link.INSTANCE_TIMEOUT):
-                urlopen(Request(url=url, data=data)).read().decode('utf-8')
-        except Exception:
-            return False
-        return True
 
     @property
     def instances(self):
@@ -509,7 +346,7 @@ class Link:
     @suicide_on_error
     def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
         """ 
-        Send a Kafka message which will be interpreted as a RPC call by the receiver module.
+        Send a stopover message which will be interpreted as a RPC call by the receiver module.
         """
         if args is None:
             args = []
@@ -522,17 +359,17 @@ class Link:
 
         if not method:
             raise ValueError
-        topic = f'catenae_rpc_{to.lower()}'
+        stream = f'catenae_rpc_{to.lower()}'
         electron = Electron(value={
             'method': method,
             'context': {
-                'group': self._consumer_group,
+                'group': self._receiver_group,
                 'uid': self._uid
             },
             'args': args,
             'kwargs': kwargs
         },
-                            topic=topic)
+                            stream=stream)
         self.send(electron, synchronous=True)
 
     @suicide_on_error
@@ -585,15 +422,15 @@ class Link:
         for thread in self._safe_stop_threads:
             thread.stop()
 
-        if self._kafka_endpoint:
-            if hasattr(self, '_producer_thread'):
-                self._producer_thread.stop()
+        if self._stopover_endpoint:
+            if hasattr(self, '_sender_thread'):
+                self._sender_thread.stop()
             if hasattr(self, '_input_handler_thread'):
                 self._input_handler_thread.stop()
-            if hasattr(self, '_consumer_rpc_thread'):
-                self._consumer_rpc_thread.stop()
-            if hasattr(self, '_consumer_main_thread'):
-                self._consumer_main_thread.stop()
+            if hasattr(self, '_receiver_rpc_thread'):
+                self._receiver_rpc_thread.stop()
+            if hasattr(self, '_receiver_main_thread'):
+                self._receiver_main_thread.stop()
 
             if hasattr(self, '_transform_rpc_executor'):
                 for thread in self._transform_rpc_executor.threads:
@@ -638,7 +475,7 @@ class Link:
         return process
 
     @suicide_on_error
-    def _kafka_producer(self):
+    def _stopover_sender(self):
         while not current_thread().will_stop:
             try:
                 electron = self._output_messages.get(timeout=Link.QUEUE_GET_TIMEOUT, block=False)
@@ -662,15 +499,15 @@ class Link:
             else:
                 partition_key = pickle.dumps(electron.key, protocol=pickle.HIGHEST_PROTOCOL)
         # Same partition key for the current instance if sequential mode
-        # is enabled so consumer can get messages in order
+        # is enabled so receiver can get messages in order
         elif self._sequential:
             partition_key = b'0'
 
-        # If the destiny topic is not specified, the first is used
-        if not electron.topic:
-            if not self._output_topics:
-                self.suicide('electron / default output topic unset')
-            electron.topic = self._output_topics[0]
+        # If the destiny stream is not specified, the first is used
+        if not electron.stream:
+            if not self._output_streams:
+                self.suicide('electron / default output stream unset')
+            electron.stream = self._output_streams[0]
 
         # Electrons are serialized
         if electron.unpack_if_string and isinstance(electron.value, str):
@@ -682,20 +519,20 @@ class Link:
             synchronous = self._synchronous
 
         if synchronous:
-            producer = self._sync_producer
+            sender = self._sync_sender
         else:
-            producer = self._async_producer
+            sender = self._async_sender
 
         try:
             # If partition_key == None, the partition.assignment.strategy
             # is used to distribute the messages
-            producer.produce(topic=electron.topic, key=partition_key, value=serialized_electron)
+            sender.produce(stream=electron.stream, key=partition_key, value=serialized_electron)
 
             if synchronous:
-                # Wait for all messages in the Producer queue to be delivered.
-                producer.flush()
+                # Wait for all messages in the sender queue to be delivered.
+                sender.flush()
             else:
-                producer.poll(0)
+                sender.poll(0)
 
             self.logger.log('electron produced', level='debug')
 
@@ -703,7 +540,7 @@ class Link:
                 callback.execute()
 
         except Exception:
-            self.suicide('Kafka producer error', exception=True)
+            self.suicide('stopover sender error', exception=True)
 
     @suicide_on_error
     def _transform(self, electron, commit_callback):
@@ -773,7 +610,7 @@ class Link:
             except errors.EmptyError:
                 continue
 
-            commit_callback = Callback(mode=Callback.COMMIT_KAFKA_MESSAGE)
+            commit_callback = Callback(mode=Callback.COMMIT_STOPOVER_MESSAGE)
 
             # Tuple
             if isinstance(queue_item, tuple):
@@ -787,28 +624,24 @@ class Link:
             else:
                 message = queue_item
 
-            if self._is_message_known(message):
-                continue
-
-            self._mark_known_message(message)
             self.logger.log('electron received', level='debug')
 
             try:
-                electron = Electron(value=message.value().decode('utf-8'))
+                electron = Electron(value=message)
             except Exception:
                 electron = pickle.loads(message.value())
 
             # Add the message timestamp
-            message_timestamp = message.timestamp()[1]
-            electron.timestamp = message_timestamp
+            # message_timestamp = message.timestamp()[1]
+            # electron.timestamp = message_timestamp
 
-            # Clean the previous topic
-            electron.previous_topic = message.topic()
-            electron.topic = None
+            # Clean the previous stream
+            # electron.previous_stream = message.stream()
+            # electron.stream = None
 
-            # The destiny topic will be overwritten if desired in the
-            # transform method (default, first output topic)
-            if electron.previous_topic in self._rpc_topics:
+            # The destiny stream will be overwritten if desired in the
+            # transform method (default, first output stream)
+            if electron.previous_stream in self._rpc_streams:
                 # Avoid own RPC calls
                 if electron.value['context']['uid'] == self._uid:
                     commit_callback.execute()
@@ -817,30 +650,8 @@ class Link:
             else:
                 self._transform_main_executor.submit(self._transform, [electron, commit_callback])
 
-    @staticmethod
-    def _get_message_id(message):
-        message_id = f'{message.topic()}_{message.partition()}_{message.offset()}'
-        return message_id
-
-    def _is_message_known(self, message):
-        """ Avoid processing repeated messages. This is not mandatory for RPC 
-        calls / synchronous mode"""
-        message_id = Link._get_message_id(message)
-        if message_id in self._known_message_ids:
-            self.logger.log(f'Received known message (topic_partition_offset): {message_id}', level='debug')
-            return True
-        return False
-
-    def _mark_known_message(self, message):
-        message_id = Link._get_message_id(message)
-        self._known_message_ids.add(message_id)
-
     @suicide_on_error
-    def _break_consumer_loop(self, subscription):
-        return len(subscription) > 1 and self._input_mode != 'parity'
-
-    @suicide_on_error
-    def _commit_kafka_message(self, consumer, message):
+    def _commit_stopover_message(self, receiver, message):
         commited = False
         attempts = 1
         self.logger.log(f'trying to commit a message', level='debug')
@@ -852,7 +663,7 @@ class Link:
                 self.logger.log(f'trying to commit a message ({attempts}/{Link.MAX_COMMIT_ATTEMPTS})', level='warn')
 
             try:
-                consumer.commit(message=message, asynchronous=False)
+                receiver.commit(message=message)
                 commited = True
             except Exception:
                 self.logger.log('could not commit a message', level='exception')
@@ -863,143 +674,74 @@ class Link:
         self.logger.log(f'message commited', level='debug')
 
     @suicide_on_error
-    def _kafka_rpc_consumer(self):
-        properties = dict(self._kafka_consumer_synchronous_properties)
-        consumer = Consumer(properties)
-        self.logger.log(f'[RPC] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
-        subscription = list(self._rpc_topics)
-        consumer.subscribe(subscription)
+    def _stopover_rpc_receiver(self):
+        return
+
+        properties = dict(self._stopover_receiver_synchronous_properties)
+        receiver = receiver(properties)
+        self.logger.log(f'[RPC] receiver properties: {utils.dump_dict_pretty(properties)}', level='debug')
+        subscription = list(self._rpc_streams)
+        receiver.subscribe(subscription)
         self.logger.log(f'[RPC] listening on: {subscription}')
 
         while not current_thread().will_stop:
-            message = consumer.poll(Link.CONSUMER_POLL_TIMEOUT)
+            message = receiver.poll(Link.RECEIVER_POLL_TIMEOUT)
 
             if not message or (not message.key() and not message.value()):
-                if not self._break_consumer_loop(subscription):
+                if not self._break_receiver_loop(subscription):
                     continue
-                # New topic / restart if there are more topics or
+                # New stream / restart if there are more streams or
                 # there aren't assigned partitions
                 break
 
-            if message.error():
-                # End of partition is not an error
-                if message.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                else:
-                    self.suicide(str(message.error()))
-
             # Commit when the transformation is commited
-            self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
+            self._input_messages.put((message, self._commit_stopover_message, [message]))
 
     @suicide_on_error
-    def _kafka_main_consumer(self):
-        if self._synchronous:
-            properties = dict(self._kafka_consumer_synchronous_properties)
-        else:
-            properties = dict(self._kafka_consumer_common_properties)
-
-        consumer = Consumer(properties)
-        self.logger.log(f'[MAIN] consumer properties: {utils.dump_dict_pretty(properties)}', level='debug')
-
+    def _stopover_main_receiver(self):
         while not current_thread().will_stop:
-            if not self._input_topics:
-                self.logger.log('No input topics, waiting...', level='debug')
+            if not self._input_streams:
+                self.logger.log('No input streams, waiting...', level='info')
                 time.sleep(Link.WAIT_INTERVAL)
                 continue
 
-            self._set_input_topic_assignments()
-            current_input_topic_assignments = dict(self._input_topic_assignments)
+            with self._input_streams_lock:
+                streams = list(self._input_streams)
 
-            for topic in current_input_topic_assignments.keys():
-                with self._input_topics_lock:
-                    if self._changed_input_topics:
-                        self._changed_input_topics = False
+            receivers = []
+            for stream in streams:
+                receiver = Receiver(endpoint=self._stopover_endpoint,
+                                    stream=stream,
+                                    receiver_group=self._receiver_group,
+                                    instance=self._uid)
+                receivers.append(receiver)
+
+            for receiver in receivers:
+                with self._input_streams_lock:
+                    if self._changed_input_streams:
+                        self._changed_input_streams = False
                         break
 
-                # Buffer for the current topic
-                message_buffer = []
+                self.logger.log(f'[MAIN] listening on: {streams}')
 
-                if self._input_mode == 'exp':
-                    subscription = [topic]
-                elif self._input_mode == 'parity':
-                    subscription = list(self._input_topics)
-                else:
-                    self.suicide('Unknown priority mode')
+                while not current_thread().will_stop:
+                    with self._input_streams_lock:
 
-                # Replaces the current subscription
-                consumer.subscribe(subscription)
-                self.logger.log(f'[MAIN] listening on: {subscription}')
-
-                start_time = utils.get_timestamp_ms()
-                assigned_time = current_input_topic_assignments[topic]
-                restarted_time = False
-                while (assigned_time == -1 \
-                        or assigned_time == self._exp_window_size \
-                        or self._on_time(start_time, assigned_time)) \
-                and not current_thread().will_stop:
-
-                    with self._input_topics_lock:
-                        assigned_time = current_input_topic_assignments[topic]
-
-                        # Subscribe to the topics again if input topics have changed
-                        if self._changed_input_topics:
-                            # _changed_input_topics is set to False in the
+                        # Subscribe to the streams again if input streams have changed
+                        if self._changed_input_streams:
+                            # _changed_input_streams is set to False in the
                             # outer loop so both loops are broken
                             break
 
-                    message = consumer.poll(Link.CONSUMER_POLL_TIMEOUT)
+                    # TODO update stopover sdk
+                    message = next(receiver.get())
+                    print(message.value)
+                    time.sleep(1)
 
-                    if not message or (not message.key() and not message.value()):
-                        if not self._break_consumer_loop(subscription):
-                            continue
-
-                        # New topic / restart if there are more topics or
-                        # there aren't assigned partitions
-                        break
-
-                    if message.error():
-                        # End of partition is not an error
-                        if message.error().code() == KafkaError._PARTITION_EOF:
-                            if not restarted_time:
-                                start_time = utils.get_timestamp_ms()
-                                restarted_time = True
-                            continue
-                        else:
-                            self.suicide(str(message.error()))
-
-                    # else
-                    if not restarted_time:
-                        start_time = utils.get_timestamp_ms()
-                        restarted_time = True
-
-                    # Synchronous commit
-                    if self._synchronous:
-                        # Commit when the transformation is commited
-                        self._input_messages.put((message, self._commit_kafka_message, [consumer, message]))
+                    if not message:
                         continue
 
-                    else:  # Asynchronous
-                        self._input_messages.put(message)
-                        continue
-
-    @suicide_on_error
-    def _get_index_assignment(self, index, elements_no, base=1.7):
-        """
-        window_size implies a full cycle consuming all the queues with
-        priority.
-        """
-        aggregated_value = .0
-
-        # The first element has the biggest value
-        reverse_index = elements_no - index - 1
-
-        for index in range(elements_no):
-            value = math.pow(base, index)
-            if index is reverse_index:
-                index_assignment = value
-            aggregated_value += value
-
-        return (index_assignment / aggregated_value) * self._exp_window_size
+                    self._input_messages.put((message, self._commit_stopover_message, [receiver, message]))
 
     @suicide_on_error
     def setup(self):
@@ -1017,24 +759,24 @@ class Link:
     @suicide_on_error
     def send(self,
              output_content,
-             topic=None,
+             stream=None,
              callback=None,
              callback_args=None,
              callback_kwargs=None,
              synchronous=None):
         if isinstance(output_content, Electron):
-            if topic:
-                output_content.topic = topic
+            if stream:
+                output_content.stream = stream
             electron = output_content.copy()
         elif not isinstance(output_content, list):
-            electron = Electron(value=output_content, topic=topic, unpack_if_string=True)
+            electron = Electron(value=output_content, stream=stream, unpack_if_string=True)
         else:
             for i, item in enumerate(output_content):
                 # Last item includes the callback
                 if i == len(output_content) - 1:
-                    self.send(item, topic=topic, callback=callback, synchronous=synchronous)
+                    self.send(item, stream=stream, callback=callback, synchronous=synchronous)
                 else:
-                    self.send(item, topic=topic, synchronous=synchronous)
+                    self.send(item, stream=stream, synchronous=synchronous)
             return
 
         if callback is not None:
@@ -1068,24 +810,20 @@ class Link:
         target(*args, **kwargs)
 
     @suicide_on_error
-    def add_input_topic(self, input_topic):
-        with self._input_topics_lock:
-            if input_topic not in self._input_topics:
-                self._input_topics.append(input_topic)
-                if self._input_mode == 'exp':
-                    self._set_input_topic_assignments()
-                self._changed_input_topics = True
-                self.logger.log(f'added input {input_topic}')
+    def add_input_stream(self, input_stream):
+        with self._input_streams_lock:
+            if input_stream not in self._input_streams:
+                self._input_streams.append(input_stream)
+                self._changed_input_streams = True
+                self.logger.log(f'added input {input_stream}')
 
     @suicide_on_error
-    def remove_input_topic(self, input_topic):
-        with self._input_topics_lock:
-            if input_topic in self._input_topics:
-                self._input_topics.remove(input_topic)
-                if self._input_mode == 'exp':
-                    self._set_input_topic_assignments()
-                self._changed_input_topics = True
-                self.logger.log(f'removed input {input_topic}')
+    def remove_input_stream(self, input_stream):
+        with self._input_streams_lock:
+            if input_stream in self._input_streams:
+                self._input_streams.remove(input_stream)
+                self._changed_input_streams = True
+                self.logger.log(f'removed input {input_stream}')
 
     def start(self, embedded=False, startup_text=None, setup_kwargs=None):
         if setup_kwargs is None:
@@ -1099,11 +837,6 @@ class Link:
             startup_text = catenae.text_logo
         self.logger.log(startup_text)
         self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
-
-        if self._kafka_endpoint:
-            self._set_kafka_common_properties()
-            self._setup_kafka_producers()
-        self._set_connectors()
 
         try:
             self.logger.log(f'link {self._uid} is starting...')
@@ -1130,18 +863,18 @@ class Link:
         for thread in self._safe_stop_threads:
             self._join_if_not_current_thread(thread)
 
-        if self._kafka_endpoint:
-            if hasattr(self, '_producer_thread'):
-                self._producer_thread.join(Link.SUICIDE_TIMEOUT)
+        if self._stopover_endpoint:
+            if hasattr(self, '_sender_thread'):
+                self._sender_thread.join(Link.SUICIDE_TIMEOUT)
 
             if hasattr(self, '_input_handler_thread'):
                 self._input_handler_thread.join(Link.SUICIDE_TIMEOUT)
 
-            if hasattr(self, '_consumer_rpc_thread'):
-                self._consumer_rpc_thread.join(Link.SUICIDE_TIMEOUT)
+            if hasattr(self, '_receiver_rpc_thread'):
+                self._receiver_rpc_thread.join(Link.SUICIDE_TIMEOUT)
 
-            if hasattr(self, '_consumer_main_thread'):
-                self._consumer_main_thread.join(Link.SUICIDE_TIMEOUT)
+            if hasattr(self, '_receiver_main_thread'):
+                self._receiver_main_thread.join(Link.SUICIDE_TIMEOUT)
 
             if hasattr(self, '_transform_rpc_executor'):
                 for thread in self._transform_rpc_executor.threads:
@@ -1159,48 +892,22 @@ class Link:
             thread.join(Link.SUICIDE_TIMEOUT)
 
     @suicide_on_error
-    def _setup_kafka_producers(self):
-        sync_producer_properties = dict(self._kafka_producer_synchronous_properties)
-        self._sync_producer = Producer(sync_producer_properties)
-        self.logger.log(f'sync producer properties: {utils.dump_dict_pretty(sync_producer_properties)}', level='debug')
-
-        async_producer_properties = dict(self._kafka_producer_common_properties)
-        self._async_producer = Producer(async_producer_properties)
-        self.logger.log(f'async producer properties: {utils.dump_dict_pretty(async_producer_properties)}',
-                        level='debug')
-
-    @suicide_on_error
     def _launch_tasks(self):
-        # JSON-RPC
-        self._jsonrpc_process = Process(
-            target=JsonRPC(self._jsonrpc_props['port'], self._jsonrpc_conn2, self.logger).run)
-        self._jsonrpc_process.daemon = True
-        self._jsonrpc_process.start()
 
-        if self._kafka_endpoint:
-            # Unavailable instances monitor
-            self.loop(self._check_instances, interval=Link.CHECK_INSTANCES_INTERVAL, safe_stop=True)
+        if self._stopover_endpoint:
+            # stopover RPC receiver
+            receiver_kwargs = {'target': self._stopover_rpc_receiver}
+            self._receiver_rpc_thread = Thread(self._thread_target, kwargs=receiver_kwargs)
+            self._receiver_rpc_thread.start()
 
-            # RPC requests thread
-            self.loop(self._rpc_request_monitor, interval=Link.RPC_REQUEST_MONITOR_INTERVAL)
+            # stopover main receiver
+            self._receiver_main_thread = Thread(self._thread_target, kwargs={'target': self._stopover_main_receiver})
+            self._receiver_main_thread.start()
 
-            # Report existence periodically
-            self.loop(self._report_existence, interval=Link.REPORT_EXISTENCE_INTERVAL)
-
-            # Kafka RPC consumer
-            consumer_kwargs = {'target': self._kafka_rpc_consumer}
-            self._consumer_rpc_thread = Thread(self._thread_target, kwargs=consumer_kwargs)
-            self._consumer_rpc_thread.start()
-
-            # Kafka main consumer
-            self._set_input_topic_assignments()
-            self._consumer_main_thread = Thread(self._thread_target, kwargs={'target': self._kafka_main_consumer})
-            self._consumer_main_thread.start()
-
-            # Kafka producer
-            producer_kwargs = {'target': self._kafka_producer}
-            self._producer_thread = Thread(self._thread_target, kwargs=producer_kwargs)
-            self._producer_thread.start()
+            # stopover sender
+            sender_kwargs = {'target': self._stopover_sender}
+            self._sender_thread = Thread(self._thread_target, kwargs=sender_kwargs)
+            self._sender_thread.start()
 
             # Transform
             self._transform_rpc_executor = ThreadPool(self, self._num_rpc_threads)
@@ -1212,243 +919,82 @@ class Link:
         # Generator
         self.loop(self.generator, interval=0, safe_stop=True)
 
-    @suicide_on_error
-    def _report_existence(self):
-        kwargs = {
-            'host': self._jsonrpc_props['host'],
-            'port': self._jsonrpc_props['port'],
-            'scheme': self._jsonrpc_props['scheme']
-        }
-        self.rpc_notify(to='broadcast', method='report_existence', kwargs=kwargs)
-
     def _set_log_level(self, log_level):
         if not hasattr(self, '_log_level'):
             self._log_level = log_level.upper()
 
     @suicide_on_error
-    def _set_connectors(self):
-        try:
-            self._aerospike = AerospikeConnector(self._aerospike_host, self._aerospike_port, connect=True)
-        except AttributeError:
-            self._aerospike = None
+    def _set_receiver(self, receiver, uid_receiver):
+        if hasattr(self, 'receiver'):
+            receiver = self._receiver_group
+        if hasattr(self, 'uid_receiver'):
+            uid_receiver = self._uid_receiver_group
 
-        try:
-            self._mongodb = MongodbConnector(self._mongodb_host, self._mongodb_port, connect=True)
-        except AttributeError:
-            self._mongodb = None
-
-        try:
-            self._rocksdb = RocksDB(self._rocksdb_path)
-        except AttributeError:
-            self._rocksdb = None
-        except Exception:
-            self._rocksdb = RocksDB(self._rocksdb_path, read_only=True)
-
-    @suicide_on_error
-    def _set_consumer_group(self, consumer_group, uid_consumer_group):
-        if hasattr(self, 'consumer_group'):
-            consumer_group = self._consumer_group
-        if hasattr(self, 'uid_consumer_group'):
-            uid_consumer_group = self._uid_consumer_group
-
-        if uid_consumer_group:
-            self._consumer_group = f'catenae_{self._uid}'
-        elif consumer_group:
-            self._consumer_group = consumer_group
+        if uid_receiver:
+            self._receiver_group = f'catenae_{self._uid}'
+        elif receiver:
+            self._receiver_group = receiver
         else:
-            self._consumer_group = f'catenae_{self._class_id}'
+            self._receiver_group = f'catenae_{self._class_id}'
 
-        self.logger.log(f'consumer_group: {self._consumer_group}')
-
-    @suicide_on_error
-    def _set_jsonrpc_props(self):
-        self._jsonrpc_props = {
-            'host': environ['JSONRPC_HOST'] if 'JSONRPC_HOST' in environ else '0.0.0.0',
-            'port': environ['JSONRPC_PORT'] if 'JSONRPC_PORT' in environ else 9494,
-            'scheme': environ['JSONRPC_SCHEME'] if 'JSONRPC_SCHEME' in environ else 'http'
-        }
-
-    @suicide_on_error
-    def _set_kafka_common_properties(self):
-        common_properties = {
-            'bootstrap.servers': self._kafka_endpoint,
-            'compression.codec': 'snappy',
-            'api.version.request': True
-        }
-
-        self._kafka_consumer_common_properties = dict(common_properties)
-        self._kafka_consumer_common_properties.update({
-            'max.partition.fetch.bytes': 1048576,  # 1MiB,
-            'metadata.max.age.ms': 10000,
-            'socket.receive.buffer.bytes': 0,  # System default
-            'group.id': self._consumer_group,
-            'session.timeout.ms': 10000,  # heartbeat thread
-            'max.poll.interval.ms': self._consumer_timeout,  # processing time
-            'enable.auto.commit': True,
-            'auto.commit.interval.ms': 5000,
-            'default.topic.config': {
-                'auto.offset.reset': 'smallest'
-            }
-        })
-
-        self._kafka_consumer_synchronous_properties = dict(self._kafka_consumer_common_properties)
-        self._kafka_consumer_synchronous_properties.update({'enable.auto.commit': False, 'auto.commit.interval.ms': 0})
-
-        self._kafka_producer_common_properties = dict(common_properties)
-        self._kafka_producer_common_properties.update({
-            'partition.assignment.strategy': 'roundrobin',
-            'message.max.bytes': 1048576,  # 1MiB
-            'socket.send.buffer.bytes': 0,  # System default
-            'acks': 1,  # ACK from the leader
-            # 'message.timeout.ms': 0, # (delivery.timeout.ms) Time a produced message waits for successful delivery
-            # 'request.timeout.ms': 30000,
-            'message.send.max.retries': 10,
-            'queue.buffering.max.ms': 1,
-            'max.in.flight.requests.per.connection': 1,
-            'batch.num.messages': 1
-        })
-
-        self._kafka_producer_synchronous_properties = dict(self._kafka_producer_common_properties)
-        self._kafka_producer_synchronous_properties.update({
-            'message.send.max.retries': 10000000,  # Max value
-            'acks': 'all',
-            'max.in.flight.requests.per.connection': 1,
-            'batch.num.messages': 1,
-            'enable.idempotence': True,
-        })
-
-    @suicide_on_error
-    def _set_input_topic_assignments(self):
-        if self._input_mode == 'parity':
-            self._input_topic_assignments = {-1: -1}
-
-        elif self._input_mode == 'exp':
-            self._input_topic_assignments = {}
-
-            if len(self._input_topics[0]) == 1:
-                self._input_topic_assignments[self._input_topics[0]] = -1
-
-            topics_no = len(self._input_topics)
-            self.logger.log('input topics time assingments:', level='debug')
-            for index, topic in enumerate(self._input_topics):
-                topic_assingment = \
-                    self._get_index_assignment(index, topics_no)
-                self._input_topic_assignments[topic] = topic_assingment
-                self.logger.log(f' * {topic}: {topic_assingment} seconds', level='debug')
+        self.logger.log(f'receiver: {self._receiver_group}')
 
     @suicide_on_error
     def _on_time(self, start_time, assigned_time):
         return (utils.get_timestamp_ms() - start_time) < 1000 * assigned_time
 
     @suicide_on_error
-    def _parse_aerospike_args(self, parser):
-        parser.add_argument('-a',
-                            '--aerospike',
-                            '--aerospike-bootstrap-server',
-                            action="store",
-                            dest="aerospike_endpoint",
-                            help='Aerospike bootstrap server. \
-                            E.g., "localhost:3000"',
-                            required=False)
-
-    @suicide_on_error
-    def _set_aerospike_properties(self, aerospike_endpoint):
-        if aerospike_endpoint is None:
-            return
-        host_port = aerospike_endpoint.split(':')
-        if not hasattr(self, '_aerospike_host'):
-            self._aerospike_host = host_port[0]
-        if not hasattr(self, '_aerospike_port'):
-            self._aerospike_port = int(host_port[1])
-
-    @suicide_on_error
-    def _parse_mongodb_args(self, parser):
-        parser.add_argument('-m',
-                            '--mongodb',
-                            action="store",
-                            dest="mongodb_endpoint",
-                            help='MongoDB server. \
-                            E.g., "localhost:27017"',
-                            required=False)
-
-    @suicide_on_error
-    def _set_mongodb_properties(self, mongodb_endpoint):
-        if mongodb_endpoint is None:
-            return
-        host_port = mongodb_endpoint.split(':')
-        if not hasattr(self, '_mongodb_host'):
-            self._mongodb_host = host_port[0]
-        if not hasattr(self, '_mongodb_port'):
-            self._mongodb_port = int(host_port[1])
-
-    @suicide_on_error
-    def _parse_rocksdb_args(self, parser):
-        parser.add_argument('-r',
-                            '--rocksdb',
-                            action="store",
-                            dest="rocksdb_path",
-                            help='RocksDB path. \
-                            E.g., "/tmp/rocksdb"',
-                            required=False)
-
-    @suicide_on_error
-    def _set_rocksdb_properties(self, rocksdb_path):
-        if rocksdb_path is None:
-            return
-        self._rocksdb_path = rocksdb_path
-
-    @suicide_on_error
-    def _parse_kafka_args(self, parser):
+    def _parse_stopover_args(self, parser):
         parser.add_argument('-i',
                             '--input',
                             action="store",
-                            dest="input_topics",
-                            help='Kafka input topics. Several topics ' + 'can be specified separated by commas',
+                            dest="input_streams",
+                            help='Stopover input streams. Several streams ' + 'can be specified separated by commas',
                             required=False)
         parser.add_argument('-o',
                             '--output',
                             action="store",
-                            dest="output_topics",
-                            help='Kafka output topics. Several topics ' + 'can be specified separated by commas',
+                            dest="output_streams",
+                            help='Stopover output streams. Several streams ' + 'can be specified separated by commas',
                             required=False)
-        parser.add_argument('-k',
-                            '--kafka-bootstrap-server',
+        parser.add_argument('-s',
+                            '--stopover',
                             action="store",
-                            dest="kafka_endpoint",
-                            help='Kafka bootstrap server. \
+                            dest="stopover_endpoint",
+                            help='Stopover server. \
                             E.g., "localhost:9092"',
                             required=False)
-        parser.add_argument('-g',
-                            '--consumer-group',
+        parser.add_argument('-r',
+                            '--receiver',
                             action="store",
-                            dest="consumer_group",
-                            help='Kafka consumer group.',
+                            dest="receiver",
+                            help='Stopover receiver name.',
                             required=False)
-        parser.add_argument('--consumer-timeout',
+        parser.add_argument('--receiver-timeout',
                             action="store",
-                            dest="consumer_timeout",
-                            help='Kafka consumer timeout in seconds.',
+                            dest="receiver_timeout",
+                            help='Stopover receiver timeout in seconds.',
                             required=False)
 
     @suicide_on_error
-    def _set_kafka_properties_from_args(self, args):
-        if args.input_topics:
-            self._input_topics = args.input_topics.split(',')
+    def _set_stopover_properties_from_args(self, args):
+        if args.input_streams:
+            self._input_streams = args.input_streams.split(',')
         else:
-            self._input_topics = []
+            self._input_streams = []
 
-        if args.output_topics:
-            self._output_topics = args.output_topics.split(',')
+        if args.output_streams:
+            self._output_streams = args.output_streams.split(',')
         else:
-            self._output_topics = []
+            self._output_streams = []
 
-        self._kafka_endpoint = args.kafka_endpoint
+        self._stopover_endpoint = args.stopover_endpoint
 
-        if args.consumer_group:
-            self._consumer_group = args.consumer_group
+        if args.receiver:
+            self._receiver_group = args.receiver
 
-        if args.consumer_timeout:
-            self._consumer_timeout = args.consumer_timeout
+        if args.receiver_timeout:
+            self._receiver_timeout = args.receiver_timeout
 
     @suicide_on_error
     def _parse_catenae_args(self, parser):
@@ -1477,9 +1023,9 @@ class Link:
                             dest="sequential",
                             help='Sequential mode is enabled.',
                             required=False)
-        parser.add_argument('--random-consumer-group',
+        parser.add_argument('--random-receiver-group',
                             action="store_true",
-                            dest="uid_consumer_group",
+                            dest="uid_receiver",
                             help='Synchronous mode is disabled.',
                             required=False)
         parser.add_argument('--rpc-threads',
@@ -1505,8 +1051,8 @@ class Link:
             self._synchronous = True
         if args.sequential:
             self._sequential = True
-        if args.uid_consumer_group:
-            self._uid_consumer_group = True
+        if args.uid_receiver:
+            self._uid_receiver_group = True
         if args.num_rpc_threads:
             self._num_rpc_threads = args.num_rpc_threads
         if args.num_main_threads:
@@ -1517,17 +1063,11 @@ class Link:
         parser = argparse.ArgumentParser()
 
         self._parse_catenae_args(parser)
-        self._parse_kafka_args(parser)
-        self._parse_aerospike_args(parser)
-        self._parse_mongodb_args(parser)
-        self._parse_rocksdb_args(parser)
+        self._parse_stopover_args(parser)
 
         parsed_args = parser.parse_known_args()
         link_args = parsed_args[0]
         self._args = parsed_args[1]
 
         self._set_catenae_properties_from_args(link_args)
-        self._set_kafka_properties_from_args(link_args)
-        self._set_aerospike_properties(link_args.aerospike_endpoint)
-        self._set_mongodb_properties(link_args.mongodb_endpoint)
-        self._set_rocksdb_properties(link_args.rocksdb_path)
+        self._set_stopover_properties_from_args(link_args)

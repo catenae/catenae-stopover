@@ -1,6 +1,3 @@
 stopover
-setuptools
 web3
 orderedset
-pickle5
-eventlet

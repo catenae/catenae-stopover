@@ -8,15 +8,15 @@ class Electron:
     def __init__(self,
                  key=None,
                  value=None,
-                 topic=None,
-                 previous_topic=None,
+                 stream=None,
+                 previous_stream=None,
                  unpack_if_string=False,
                  callbacks=None,
                  timestamp=None):
         self.key = key
         self.value = value
-        self.topic = topic  # Destination topic
-        self.previous_topic = previous_topic
+        self.stream = stream  # Destination stream
+        self.previous_stream = previous_stream
         self.unpack_if_string = unpack_if_string
         if callbacks is None:
             self.callbacks = []
@@ -31,8 +31,8 @@ class Electron:
 
     def get_sendable(self):
         copy = self.copy()
-        copy.topic = None
-        copy.previous_topic = None
+        copy.stream = None
+        copy.previous_stream = None
         copy.unpack_if_string = False
         copy.callbacks = []
         copy.timestamp = None
@@ -42,8 +42,8 @@ class Electron:
         electron = Electron()
         electron.key = self.key
         electron.value = copy.deepcopy(self.value)
-        electron.topic = self.topic
-        electron.previous_topic = self.previous_topic
+        electron.stream = self.stream
+        electron.previous_stream = self.previous_stream
         electron.unpack_if_string = self.unpack_if_string
         electron.callbacks = self.callbacks
         electron.timestamp = self.timestamp
