@@ -315,33 +315,6 @@ class Link:
             self.logger.log(level='exception')
             raise errors.InternalError
 
-    @property
-    def instances(self):
-        with self._instances_lock:
-            instances_known_instances = dict(self._instances)
-            return instances_known_instances
-
-    @rpc
-    def get_instances(self):
-        return self.instances
-
-    @rpc
-    def available(self):
-        return True
-
-    @suicide_on_error
-    @rpc
-    def report_existence(self, context, host, port, scheme):
-        with self._instances_lock:
-            if self._it_is_me(host, port):
-                return True
-
-            self._known_instances[context['uid']] = {
-                'host': host,
-                'port': port,
-                'scheme': scheme,
-                'group': context['group']
-            }
 
     @suicide_on_error
     def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
@@ -733,10 +706,13 @@ class Link:
                             # outer loop so both loops are broken
                             break
 
-                    # TODO update stopover sdk
-                    message = next(receiver.get())
-                    print(message.value)
+
+                    ##################
+                    # TODO NO LLEGA MENSAJE A TRANSFORM
+                    message = receiver.get()
+                    # print(message.value)
                     time.sleep(1)
+                    ####################################
 
                     if not message:
                         continue
