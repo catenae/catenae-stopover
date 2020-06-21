@@ -1,7 +1,7 @@
 #!/bin/bash
-VERSION=${1:-develop}
-docker rmi catenae/link:$VERSION 2> /dev/null
+source env.sh
+docker rmi catenae/link-stopover:$VERSION 2> /dev/null
 tar cf ../../catenae.tar ../
 mv ../../catenae.tar .
-docker build -t catenae/link:$VERSION .
+docker build -t catenae/link-stopover:$VERSION .
 rm -f catenae.tar

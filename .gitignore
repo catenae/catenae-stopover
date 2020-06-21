@@ -1,6 +1,5 @@
 build/
 *~
-catenae.egg-info/
+catenae*.egg-info/
 dist/
-catenae/connectors/__pycache__/
-catenae/__pycache__/
+catenae*/__pycache__/

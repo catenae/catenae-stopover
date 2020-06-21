@@ -5,7 +5,7 @@ from setuptools import find_packages
 from setuptools import setup
 import catenae
 
-setup(name='catenae3',
+setup(name='catenae-stopover',
       version=catenae.__version__,
       description='Catenae 3 – Microservices Framework for Stopover',
       url='https://github.com/catenae',
@@ -24,4 +24,4 @@ setup(name='catenae3',
           "Programming Language :: Python :: Implementation :: PyPy",
           "Topic :: Software Development :: Libraries :: Python Modules",
       ],
-      install_requires=['stopover', 'web3', 'orderedset'])
+      install_requires=['stopover', 'orderedset==2.0.3'])

@@ -1,3 +1,1 @@
-stopover
-web3
-orderedset
+orderedset==2.0.3

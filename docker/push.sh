@@ -1,3 +1,3 @@
 #!/bin/bash
-VERSION=${1:-develop}
-docker push catenae/link:$VERSION
+source env.sh
+docker push catenae/link-stopover:$VERSION
