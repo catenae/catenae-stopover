@@ -73,8 +73,7 @@ class Link:
             input_streams = [input_stream]
 
         if ignored_kwargs:
-            self.logger.log(
-                f'the following kwargs were ignored: {ignored_kwargs}')
+            self.logger.log(f'the following kwargs were ignored: {ignored_kwargs}')
 
         self._config = dict(Link.DEFAULT_CONFIG)
         self._config.update({
@@ -105,14 +104,10 @@ class Link:
     def setup(self):
         pass
 
-    def start(self,
-              startup_text: str = None,
-              setup_kwargs: dict = None,
-              **ignored_kwargs):
+    def start(self, startup_text: str = None, setup_kwargs: dict = None, **ignored_kwargs):
         if not startup_text:
             self.logger.log(catenae.text_logo)
-            self.logger.log(
-                f'Catenae v{catenae.__version__} {catenae.__version_name__}')
+            self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
 
         with self._locks['start_stop']:
             self._started = True
@@ -135,8 +130,7 @@ class Link:
 
     @suicide_on_error
     def send(self, message, stream: str = None):
-        stream = self.config[
-            'default_output_stream'] if stream is None else stream
+        stream = self.config['default_output_stream'] if stream is None else stream
         if stream is None:
             raise ValueError('stream not provided')
         self.stopover.put(message, stream)
@@ -214,8 +208,7 @@ class Link:
     def _transform_loop(self):
         while not current_thread().will_stop:
             for input_stream in self.config['input_streams']:
-                message = self.stopover.get(input_stream,
-                                            self.config['receiver_group'])
+                message = self.stopover.get(input_stream, self.config['receiver_group'])
 
                 if not message:
                     time.sleep(self.config['no_messages_sleep_interval'])
@@ -227,8 +220,7 @@ class Link:
                 else:
                     value = result
                 if value and self.config['default_output_stream']:
-                    self.stopover.put(value,
-                                      self.config['default_output_stream'])
+                    self.stopover.put(value, self.config['default_output_stream'])
 
                 self.stopover.commit(message, self.config['receiver_group'])
 
@@ -248,23 +240,20 @@ class Link:
 
         while not current_thread().will_stop:
             try:
-                self.logger.log(f'new loop iteration ({target.__name__})',
-                                level=level)
+                self.logger.log(f'new loop iteration ({target.__name__})', level=level)
                 start_timestamp = utils.get_timestamp()
 
                 target(*args, **kwargs)
 
                 while not current_thread().will_stop:
-                    continue_sleeping = (utils.get_timestamp() -
-                                         start_timestamp) < interval
+                    continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
                     if not continue_sleeping:
                         break
                     time.sleep(self.config['intervals']['loop_check_stop'])
 
             except Exception:
-                self.logger.log(
-                    f'exception raised when executing the loop: {target.__name__}',
-                    level='exception')
+                self.logger.log(f'exception raised when executing the loop: {target.__name__}',
+                                level='exception')
 
     def _setup_signals_handler(self):
         for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
