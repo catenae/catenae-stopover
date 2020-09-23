@@ -1,2 +1,2 @@
 #!/bin/bash
-export VERSION=${1:-latest}
+export VERSION=$(cat ../catenae/__init__.py | grep __version__ | cut -f2 -d\')
