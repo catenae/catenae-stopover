@@ -58,14 +58,14 @@ class Link:
     }
 
     def __init__(self,
-                 endpoint: str = None,
+                 endpoint: str = 'http://localhost:5704',
                  input_stream: str = None,
                  input_streams: list = None,
                  default_output_stream: str = None,
                  receiver_group: str = None,
                  log_level: str = None,
                  **ignored_kwargs):
-        self.stopover = Stopover('http://localhost:8080')
+        self.stopover = Stopover(endpoint)
 
         self.logger = Logger(self, level=log_level)
 

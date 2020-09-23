@@ -2,6 +2,9 @@ from catenae import Link
 
 
 class LoopFilter(Link):
+    def setup(self):
+        self.send("seed message")
+
     def transform(self, message):
         self.logger.log(message)
         return message
