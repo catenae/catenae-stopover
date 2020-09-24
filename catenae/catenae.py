@@ -11,7 +11,7 @@
 #        ◼◼◼      ◼◼◼            ◼◼◼     ◼◼           ◼◼◼           ◼◼◼      ◼◼◼◼   ◼◼◼            ◼◼◼      ◼◼◼
 #          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼
 #
-# Catenae 3.0.0 Graphene
+# Catenae 3.x Graphene
 # Copyright (C) 2017-2020 Rodrigo Martínez Castaño
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,6 +32,7 @@ import catenae
 from os import environ
 import signal
 import traceback
+import argparse
 from .logger import Logger
 from .threading import Thread, Lock, current_thread
 from . import utils
@@ -58,34 +59,41 @@ class Link:
     }
 
     def __init__(self,
-                 endpoint: str = 'http://localhost:5704',
+                 endpoints: list = None,
                  input_stream: str = None,
                  input_streams: list = None,
                  default_output_stream: str = None,
                  receiver_group: str = None,
                  log_level: str = None,
                  **ignored_kwargs):
-        self.stopover = Stopover(endpoint)
-
         self.logger = Logger(self, level=log_level)
+
+        if endpoints is None:
+            endpoints = ['http://localhost:5704']
 
         if input_stream:
             input_streams = [input_stream]
+        if input_streams is None:
+            input_streams = []
 
         if ignored_kwargs:
             self.logger.log(f'the following kwargs were ignored: {ignored_kwargs}')
 
+        receiver_group = receiver_group if receiver_group else self.__class__.__name__
         self._config = dict(Link.DEFAULT_CONFIG)
         self._config.update({
-            'input_streams':
-            input_streams,
-            'default_output_stream':
-            default_output_stream,
-            'receiver_group':
-            receiver_group if receiver_group else self.__class__.__name__,
+            'endpoints': endpoints,
+            'input_streams': input_streams,
+            'default_output_stream': default_output_stream,
+            'receiver_group': receiver_group,
         })
-
         self._set_uid()
+        self._load_args()
+
+        if self._config['endpoints']:
+            self.stopover = Stopover(endpoint=self._config['endpoints'][0], uid=self._config['uid'])
+        else:
+            self.stopover = None
 
         self._threads = []
         self._locks = {'_threads': Lock(), 'start_stop': Lock()}
@@ -93,9 +101,68 @@ class Link:
         self._started = False
         self._stopped = False
 
+    def _load_args(self):
+        parser = argparse.ArgumentParser()
+
+        parser.add_argument('-e',
+                            '--endpoint',
+                            action='store',
+                            dest='endpoint',
+                            help='Message broker endpoint. \
+                            E.g., http://localhost:9092',
+                            required=False)
+
+        parser.add_argument('-i',
+                            '--input',
+                            action='store',
+                            dest='input_streams',
+                            help='Input streams. Several streams ' +
+                            'can be specified separated by commas',
+                            required=False)
+
+        parser.add_argument('-o',
+                            '--output',
+                            action='store',
+                            dest='default_output_stream',
+                            help='Default output stream.',
+                            required=False)
+
+        parser.add_argument('-g',
+                            '--receiver-group',
+                            action='store',
+                            dest='receiver_group',
+                            help='Receiver group.',
+                            required=False)
+
+        parser.add_argument('-u',
+                            '--uid',
+                            action='store',
+                            dest='uid',
+                            help='Link\'s Unique ID.',
+                            required=False)
+
+        parsed_args = parser.parse_known_args()
+        link_args = parsed_args[0]
+        self._args = parsed_args[1]
+
+        if link_args.endpoint:
+            self._config['endpoints'] = link_args.endpoint.split(',')
+
+        if link_args.input_streams:
+            self._config['input_streams'] = link_args.input_streams.split(',')
+
+        if link_args.default_output_stream:
+            self._config['default_output_stream'] = link_args.default_output_stream
+
+        if link_args.receiver_group:
+            self._config['receiver_group'] = link_args.receiver_group
+
+        if link_args.uid:
+            self._config['uid'] = link_args.uid
+
     @property
     def uid(self):
-        return self._uid
+        return self._config['uid']
 
     @property
     def config(self):
@@ -200,9 +267,9 @@ class Link:
 
     def _set_uid(self):
         if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
-            self._uid = environ['HOSTNAME']
+            self._config['uid'] = environ['HOSTNAME']
         else:
-            self._uid = utils.get_uid()
+            self._config['uid'] = utils.get_uid()
 
     @suicide_on_error
     def _transform_loop(self):
