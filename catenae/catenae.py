@@ -42,8 +42,8 @@ def suicide_on_error(method):
     def suicide_on_error_(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except Exception as e:
-            traceback.print_exc(e)
+        except Exception:
+            traceback.print_exc()
             self.suicide(f'error when executing {method}')
 
     return suicide_on_error_
@@ -100,6 +100,10 @@ class Link:
 
         self._started = False
         self._stopped = False
+
+    @property
+    def env(self):
+        return dict(environ)
 
     def _load_args(self):
         parser = argparse.ArgumentParser()
