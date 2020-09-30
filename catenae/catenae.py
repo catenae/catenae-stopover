@@ -105,6 +105,10 @@ class Link:
     def env(self):
         return dict(environ)
 
+    @property
+    def args(self).
+        return list(self._args)
+
     def _load_args(self):
         parser = argparse.ArgumentParser()
 
