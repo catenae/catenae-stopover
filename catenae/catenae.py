@@ -106,7 +106,7 @@ class Link:
         return dict(environ)
 
     @property
-    def args(self).
+    def args(self):
         return list(self._args)
 
     def _load_args(self):
