@@ -76,9 +76,6 @@ class Link:
         if input_streams is None:
             input_streams = []
 
-        if ignored_kwargs:
-            self.logger.log(f'the following kwargs were ignored: {ignored_kwargs}')
-
         receiver_group = receiver_group if receiver_group else self.__class__.__name__
         self._config = dict(Link.DEFAULT_CONFIG)
         self._config.update({
@@ -89,6 +86,9 @@ class Link:
         })
         self._set_uid()
         self._load_args()
+
+        if ignored_kwargs:
+            self.logger.log(f'the following kwargs were ignored: {ignored_kwargs}')
 
         if self._config['endpoints']:
             self.stopover = Stopover(endpoint=self._config['endpoints'][0], uid=self._config['uid'])
