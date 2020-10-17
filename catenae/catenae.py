@@ -26,7 +26,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from stopover import Stopover, Message
+from stopover import Stopover, MessageResponse
 import time
 import catenae
 from os import environ
@@ -290,7 +290,7 @@ class Link:
                     continue
 
                 result = self.transform(message)
-                if isinstance(result, Message):
+                if isinstance(result, MessageResponse):
                     value = result.value
                 else:
                     value = result
