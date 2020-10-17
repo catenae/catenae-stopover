@@ -1,3 +1,3 @@
 FROM catenae/foundation-stopover
 ADD catenae.tar /opt/catenae
-RUN python setup.py install
+RUN pip install stopover -U && python setup.py install
