@@ -194,8 +194,14 @@ class Link:
         if hasattr(self, 'generator'):
             self._threads.append(self.loop(self.generator, interval=0))
 
-        if hasattr(self, 'transform'):
-            self._threads.append(self.launch_thread(self._transform_loop))
+        if self.stopover is not None:
+            if hasattr(self, 'transform'):
+                self._threads.append(self.loop(self._transform))
+
+            self._threads.append(
+                self.loop(self.stopover.knock,
+                          kwargs={'receiver_group': self.config['receiver_group']},
+                          interval=5))
 
         for thread in self._threads:
             thread.join()
@@ -280,24 +286,23 @@ class Link:
             self._config['uid'] = utils.get_uid()
 
     @suicide_on_error
-    def _transform_loop(self):
-        while not current_thread().will_stop:
-            for input_stream in self.config['input_streams']:
-                message = self.stopover.get(input_stream, self.config['receiver_group'])
+    def _transform(self):
+        for input_stream in self.config['input_streams']:
+            message = self.stopover.get(input_stream, self.config['receiver_group'])
 
-                if not message:
-                    time.sleep(self.config['no_messages_sleep_interval'])
-                    continue
+            if not message:
+                time.sleep(self.config['no_messages_sleep_interval'])
+                continue
 
-                result = self.transform(message)
-                if isinstance(result, MessageResponse):
-                    value = result.value
-                else:
-                    value = result
-                if value and self.config['default_output_stream']:
-                    self.stopover.put(value, self.config['default_output_stream'])
+            result = self.transform(message)
+            if isinstance(result, MessageResponse):
+                value = result.value
+            else:
+                value = result
+            if value and self.config['default_output_stream']:
+                self.stopover.put(value, self.config['default_output_stream'])
 
-                self.stopover.commit(message, self.config['receiver_group'])
+            self.stopover.commit(message, self.config['receiver_group'])
 
     @suicide_on_error
     def _loop_task(self, target, args, kwargs, interval, wait, level):
