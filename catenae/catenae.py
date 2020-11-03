@@ -227,21 +227,13 @@ class Link:
         return thread
 
     @suicide_on_error
-    def loop(self,
-             target,
-             args=None,
-             kwargs=None,
-             interval=0,
-             wait=False,
-             level='debug',
-             safe_stop=True):
+    def loop(self, target, args=None, kwargs=None, interval=0, wait=False, safe_stop=True):
         loop_task_kwargs = {
             'target': target,
             'args': args,
             'kwargs': kwargs,
             'interval': interval,
             'wait': wait,
-            'level': level
         }
         thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
         if safe_stop:
@@ -295,17 +287,18 @@ class Link:
                 continue
 
             result = self.transform(message)
-            if isinstance(result, MessageResponse):
-                value = result.value
-            else:
-                value = result
-            if value and self.config['default_output_stream']:
-                self.stopover.put(value, self.config['default_output_stream'])
+            output = result.value if isinstance(result, MessageResponse) else result
+
+            if output:
+                if self.config['default_output_stream']:
+                    self.stopover.put(output, self.config['default_output_stream'])
+                else:
+                    raise ValueError('default stream is missing')
 
             self.stopover.commit(message, self.config['receiver_group'])
 
     @suicide_on_error
-    def _loop_task(self, target, args, kwargs, interval, wait, level):
+    def _loop_task(self, target, args, kwargs, interval, wait):
         if wait:
             time.sleep(interval)
 
@@ -319,21 +312,15 @@ class Link:
             kwargs = {}
 
         while not current_thread().will_stop:
-            try:
-                self.logger.log(f'new loop iteration ({target.__name__})', level=level)
-                start_timestamp = utils.get_timestamp()
+            start_timestamp = utils.get_timestamp()
 
-                target(*args, **kwargs)
+            target(*args, **kwargs)
 
-                while not current_thread().will_stop:
-                    continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
-                    if not continue_sleeping:
-                        break
-                    time.sleep(self.config['intervals']['loop_check_stop'])
-
-            except Exception:
-                self.logger.log(f'exception raised when executing the loop: {target.__name__}',
-                                level='exception')
+            while not current_thread().will_stop:
+                continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
+                if not continue_sleeping:
+                    break
+                time.sleep(self.config['intervals']['loop_check_stop'])
 
     def _setup_signals_handler(self):
         for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
