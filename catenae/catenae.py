@@ -96,7 +96,7 @@ class Link:
             self.stopover = None
 
         self._threads = []
-        self._locks = {'_threads': Lock(), 'start_stop': Lock()}
+        self._locks = {'threads': Lock(), 'start_stop': Lock()}
 
         self._started = False
         self._stopped = False
@@ -209,24 +209,21 @@ class Link:
     def stop(self):
         pass
 
-    @suicide_on_error
     def send(self, message, stream: str = None):
         stream = self.config['default_output_stream'] if stream is None else stream
         if stream is None:
             raise ValueError('stream not provided')
         self.stopover.put(message, stream)
 
-    @suicide_on_error
     def launch_thread(self, target, args=None, kwargs=None, safe_stop=False):
         thread = Thread(target, args=args, kwargs=kwargs)
         if safe_stop:
-            with self._locks['_threads']:
+            with self._locks['threads']:
                 self._threads.append(thread)
         thread.daemon = True
         thread.start()
         return thread
 
-    @suicide_on_error
     def loop(self, target, args=None, kwargs=None, interval=0, wait=False, safe_stop=True):
         loop_task_kwargs = {
             'target': target,
@@ -237,7 +234,7 @@ class Link:
         }
         thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
         if safe_stop:
-            with self._locks['_threads']:
+            with self._locks['threads']:
                 self._threads.append(thread)
         thread.daemon = True
         thread.start()
@@ -267,12 +264,9 @@ class Link:
         while not self._started:
             time.sleep(self.config['intervals']['loop_check_start'])
 
-        with self._locks['_threads']:
+        with self._locks['threads']:
             for thread in self._threads:
                 thread.stop()
-
-        # Kill the thread that invoked the suicide method
-        raise SystemExit
 
     def _set_uid(self):
         if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
@@ -280,7 +274,6 @@ class Link:
         else:
             self._config['uid'] = utils.get_uid()
 
-    @suicide_on_error
     def _transform(self):
         for input_stream in self.config['input_streams']:
             message = self.stopover.get(input_stream, self.config['receiver_group'])
