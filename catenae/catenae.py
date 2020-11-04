@@ -182,7 +182,10 @@ class Link:
     def start(self, startup_text: str = None, setup_kwargs: dict = None, **ignored_kwargs):
         if not startup_text:
             self.logger.log(catenae.text_logo)
-            self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
+        self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
+
+        if startup_text:
+            self.logger.log(startup_text)
 
         with self._locks['start_stop']:
             self._started = True
