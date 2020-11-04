@@ -271,6 +271,9 @@ class Link:
             for thread in self._threads:
                 thread.stop()
 
+        # Kill the thread that invoked the suicide method
+        raise SystemExit
+
     def _set_uid(self):
         if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
             self._config['uid'] = environ['HOSTNAME']
