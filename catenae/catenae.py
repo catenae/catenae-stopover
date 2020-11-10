@@ -37,6 +37,14 @@ from .logger import Logger
 from .threading import Thread, Lock, current_thread
 from . import utils
 
+_rpc_enabled_methods = set()
+
+
+def rpc(method):
+    if method.__name__ not in _rpc_enabled_methods and method.__name__ != 'suicide_on_error':
+        _rpc_enabled_methods.add(method.__name__)
+    return method
+
 
 def suicide_on_error(method):
     def suicide_on_error_(self, *args, **kwargs):
@@ -76,15 +84,18 @@ class Link:
         if input_streams is None:
             input_streams = []
 
-        receiver_group = receiver_group if receiver_group else self.__class__.__name__
         self._config = dict(Link.DEFAULT_CONFIG)
+        self._set_uid()
         self._config.update({
             'endpoints': endpoints,
             'input_streams': input_streams,
             'default_output_stream': default_output_stream,
-            'receiver_group': receiver_group,
+            'receiver_group': receiver_group if receiver_group \
+                              else self.__class__.__name__,
+            'rpc_topics': [f'catenae_rpc_{self.uid}',
+                           f'catenae_rpc_{self.__class__.__name__.lower()}',
+                            'catenae_rpc_broadcast']
         })
-        self._set_uid()
         self._load_args()
 
         if ignored_kwargs:
@@ -96,10 +107,12 @@ class Link:
             self.stopover = None
 
         self._threads = []
-        self._locks = {'threads': Lock(), 'start_stop': Lock()}
+        self._locks = {'threads': Lock(), 'start_stop': Lock(), 'rpc_lock': Lock()}
 
         self._started = False
         self._stopped = False
+
+        self.logger.log(f'configuration: {utils.dump_dict_pretty(self._config)}')
 
     @property
     def env(self):
@@ -194,8 +207,10 @@ class Link:
             setup_kwargs = {}
         self.setup(**setup_kwargs)
 
+        self._threads.append(self.loop(self._rpc_notify_handler))
+
         if hasattr(self, 'generator'):
-            self._threads.append(self.loop(self.generator, interval=0))
+            self._threads.append(self.loop(self.generator))
 
         if self.stopover is not None:
             if hasattr(self, 'transform'):
@@ -242,6 +257,31 @@ class Link:
         thread.daemon = True
         thread.start()
         return thread
+
+    def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
+        if args is None:
+            args = []
+
+        if not isinstance(args, list):
+            args = [args]
+
+        if kwargs is None:
+            kwargs = {}
+
+        if not method:
+            raise ValueError
+        topic = f'catenae_rpc_{to.lower()}'
+        call = {
+            'method': method,
+            'context': {
+                'group': self.config['receiver_group'],
+                'uid': self.uid
+            },
+            'args': args,
+            'kwargs': kwargs
+        }
+
+        self.send(call, topic)
 
     def suicide(self, message=None, exception=False):
         with self._locks['start_stop']:
@@ -295,6 +335,41 @@ class Link:
                     raise ValueError('default stream is missing')
 
             self.stopover.commit(message, self.config['receiver_group'])
+
+    def _rpc_notify_handler(self):
+        for input_stream in self.config['rpc_topics']:
+            message = self.stopover.get(input_stream, self.uid)
+
+            if not message:
+                time.sleep(self.config['no_messages_sleep_interval'])
+                continue
+
+            if message.value['context']['uid'] != self.uid:
+                self._rpc_notify(message)
+            self.stopover.commit(message, self.uid)
+
+    @suicide_on_error
+    def _rpc_notify(self, message):
+        method = message.value['method']
+        if not method in _rpc_enabled_methods:
+            self.logger.log(f'method {method} cannot be called', level='error')
+            return
+
+        if not 'method' in message.value:
+            self.logger.log(f'invalid RPC invocation: {message.value}', level='error')
+            return
+
+        try:
+            context = message.value['context']
+            args = [context] + message.value['args']
+            kwargs = message.value['kwargs']
+            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
+                            level='debug')
+            with self._locks['rpc_lock']:
+                getattr(self, message.value['method'])(*args, **kwargs)
+
+        except Exception:
+            self.logger.log(f'error when invoking {method} remotely', level='exception')
 
     @suicide_on_error
     def _loop_task(self, target, args, kwargs, interval, wait):

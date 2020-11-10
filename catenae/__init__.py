@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from .catenae import *
+from .threading import should_stop
 
 text_logo = """\n
          \033[93m◼◼◼\033[0m            \033[93m◼◼\033[0m    \033[93m◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼\033[0m    \033[93m◼◼◼\033[0m         \033[93m◼◼◼       ◼◼◼\033[0m           \033[93m◼◼\033[0m                \033[93m◼◼◼\033[0m
