@@ -318,12 +318,13 @@ class Link:
             self._config['uid'] = utils.get_uid()
 
     def _transform(self):
+        no_messages = True
         for input_stream in self.config['input_streams']:
             message = self.stopover.get(input_stream, self.config['receiver_group'])
 
             if not message:
-                time.sleep(self.config['no_messages_sleep_interval'])
                 continue
+            no_messages = False
 
             result = self.transform(message)
             output = result.value if isinstance(result, MessageResponse) else result
@@ -336,17 +337,24 @@ class Link:
 
             self.stopover.commit(message, self.config['receiver_group'])
 
+        if no_messages:
+            time.sleep(self.config['no_messages_sleep_interval'])
+
     def _rpc_notify_handler(self):
+        no_messages = True
         for input_stream in self.config['rpc_topics']:
             message = self.stopover.get(input_stream, self.uid)
 
             if not message:
-                time.sleep(self.config['no_messages_sleep_interval'])
                 continue
+            no_messages = False
 
             if message.value['context']['uid'] != self.uid:
                 self._rpc_notify(message)
             self.stopover.commit(message, self.uid)
+
+        if no_messages:
+            time.sleep(self.config['no_messages_sleep_interval'])
 
     @suicide_on_error
     def _rpc_notify(self, message):
