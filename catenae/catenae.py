@@ -359,7 +359,6 @@ class Link:
         if no_messages:
             time.sleep(self.config['no_messages_sleep_interval'])
 
-    @suicide_on_error
     def _rpc_notify(self, message):
         method = message.value['method']
         if not method in _rpc_enabled_methods:
