@@ -192,7 +192,11 @@ class Link:
     def setup(self):
         pass
 
-    def start(self, startup_text: str = None, setup_kwargs: dict = None, **ignored_kwargs):
+    def start(self,
+              startup_text: str = None,
+              setup_kwargs: dict = None,
+              embedded: bool = False,
+              **ignored_kwargs):
         if not startup_text:
             self.logger.log(catenae.text_logo)
         self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
@@ -221,8 +225,10 @@ class Link:
                           kwargs={'receiver_group': self.config['receiver_group']},
                           interval=5))
 
-        for thread in self._threads:
-            thread.join()
+        if not embedded:
+            self._setup_signals_handler()
+            for thread in self._threads:
+                thread.join()
 
     def stop(self):
         pass
@@ -250,12 +256,7 @@ class Link:
             'interval': interval,
             'wait': wait,
         }
-        thread = Thread(self._loop_task, kwargs=loop_task_kwargs)
-        if safe_stop:
-            with self._locks['threads']:
-                self._threads.append(thread)
-        thread.daemon = True
-        thread.start()
+        thread = self.launch_thread(self._loop_task, kwargs=loop_task_kwargs, safe_stop=safe_stop)
         return thread
 
     def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
@@ -310,10 +311,10 @@ class Link:
         with self._locks['threads']:
             for thread in self._threads:
                 thread.stop()
-                
+
         # Kill the thread that invoked the suicide method
         raise SystemExit
-    
+
     def _set_uid(self):
         if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
             self._config['uid'] = environ['HOSTNAME']
