@@ -197,6 +197,10 @@ class Link:
               setup_kwargs: dict = None,
               embedded: bool = False,
               **ignored_kwargs):
+        with self._locks['start_stop']:
+            if self._started:
+                return
+
         if not startup_text:
             self.logger.log(catenae.text_logo)
         self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
