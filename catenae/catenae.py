@@ -76,9 +76,6 @@ class Link:
                  **ignored_kwargs):
         self.logger = Logger(self, level=log_level)
 
-        if endpoints is None:
-            endpoints = ['http://localhost:5704']
-
         if input_stream:
             input_streams = [input_stream]
         if input_streams is None:
@@ -215,12 +212,12 @@ class Link:
             setup_kwargs = {}
         self.setup(**setup_kwargs)
 
-        self._threads.append(self.loop(self._rpc_notify_handler))
-
         if hasattr(self, 'generator'):
             self._threads.append(self.loop(self.generator))
 
         if self.stopover is not None:
+            self._threads.append(self.loop(self._rpc_notify_handler))
+
             if hasattr(self, 'transform'):
                 self._threads.append(self.loop(self._transform))
 
