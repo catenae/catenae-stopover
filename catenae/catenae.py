@@ -89,6 +89,7 @@ class Link:
             'default_output_stream': default_output_stream,
             'receiver_group': receiver_group if receiver_group \
                               else self.__class__.__name__,
+            'rpc_enabled': False,
             'rpc_topics': [f'catenae_rpc_{self.uid}',
                            f'catenae_rpc_{self.__class__.__name__.lower()}',
                             'catenae_rpc_broadcast']
@@ -159,6 +160,13 @@ class Link:
                             help='Link\'s Unique ID.',
                             required=False)
 
+        parser.add_argument('-r',
+                            '--rpc',
+                            action='store_true',
+                            dest='rpc_enabled',
+                            help='Enable RPC.',
+                            required=False)
+
         parsed_args = parser.parse_known_args()
         link_args = parsed_args[0]
         self._args = parsed_args[1]
@@ -177,6 +185,9 @@ class Link:
 
         if link_args.uid:
             self._config['uid'] = link_args.uid
+
+        if link_args.rpc_enabled:
+            self._config['rpc_enabled'] = link_args.rpc_enabled
 
     @property
     def uid(self):
@@ -216,7 +227,8 @@ class Link:
             self._threads.append(self.loop(self.generator))
 
         if self.stopover is not None:
-            self._threads.append(self.loop(self._rpc_notify_handler))
+            if self._config['rpc_enabled']:
+                self._threads.append(self.loop(self._rpc_notify_handler))
 
             if hasattr(self, 'transform'):
                 self._threads.append(self.loop(self._transform))
