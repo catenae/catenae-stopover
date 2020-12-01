@@ -195,7 +195,7 @@ class Link:
 
     @property
     def config(self):
-        return self._config
+        return dict(self._config)
 
     def setup(self):
         pass
