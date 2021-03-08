@@ -24,4 +24,4 @@ setup(name='catenae-stopover',
           "Programming Language :: Python :: Implementation :: PyPy",
           "Topic :: Software Development :: Libraries :: Python Modules",
       ],
-      install_requires=['stopover>=21.3.1', 'orderedset==2.0.3'])
+      install_requires=['stopover>=21.3.6', 'orderedset==2.0.3'])

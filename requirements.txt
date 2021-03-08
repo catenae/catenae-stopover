@@ -1,2 +1,2 @@
-stopover>=21.3.1
+stopover>=21.3.6
 orderedset==2.0.3
