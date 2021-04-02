@@ -396,11 +396,10 @@ class Link:
         no_messages = True
         for input_stream in self.config['rpc_topics']:
             message = self.stopover.get(input_stream, self.uid)
-            call = message.value
-
             if not message:
                 continue
 
+            call = message.value
             no_messages = False
             try:
                 if not 'context' in call or call['context']['uid'] != self.uid:
@@ -423,7 +422,7 @@ class Link:
             call['kwargs'] = {}
 
         if not 'context' in call:
-            call['context'] = {'uuid': None, 'group': None}
+            call['context'] = {'uid': None, 'group': None}
 
         if not method in _rpc_enabled_methods:
             self.logger.log(f'method {method} cannot be called', level='error')
