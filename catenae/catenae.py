@@ -97,20 +97,27 @@ class Link:
         self._load_args()
 
         if ignored_kwargs:
-            self.logger.log(f'the following kwargs were ignored: {ignored_kwargs}')
+            self.logger.log(
+                f'the following kwargs were ignored: {ignored_kwargs}')
 
         if self._config['endpoints']:
-            self.stopover = Stopover(endpoint=self._config['endpoints'][0], uid=self._config['uid'])
+            self.stopover = Stopover(endpoint=self._config['endpoints'][0],
+                                     uid=self._config['uid'])
         else:
             self.stopover = None
 
         self._threads = []
-        self._locks = {'threads': Lock(), 'start_stop': Lock(), 'rpc_lock': Lock()}
+        self._locks = {
+            'threads': Lock(),
+            'start_stop': Lock(),
+            'rpc_lock': Lock()
+        }
 
         self._started = False
         self._stopped = False
 
-        self.logger.log(f'configuration: {utils.dump_dict_pretty(self._config)}')
+        self.logger.log(
+            f'configuration: {utils.dump_dict_pretty(self._config)}')
 
     @property
     def env(self):
@@ -178,7 +185,8 @@ class Link:
             self._config['input_streams'] = link_args.input_streams.split(',')
 
         if link_args.default_output_stream:
-            self._config['default_output_stream'] = link_args.default_output_stream
+            self._config[
+                'default_output_stream'] = link_args.default_output_stream
 
         if link_args.receiver_group:
             self._config['receiver_group'] = link_args.receiver_group
@@ -211,7 +219,8 @@ class Link:
 
         if not startup_text:
             self.logger.log(catenae.text_logo)
-        self.logger.log(f'Catenae v{catenae.__version__} {catenae.__version_name__}')
+        self.logger.log(
+            f'Catenae v{catenae.__version__} {catenae.__version_name__}')
 
         if startup_text:
             self.logger.log(startup_text)
@@ -234,9 +243,10 @@ class Link:
                 self._threads.append(self.loop(self._transform))
 
             self._threads.append(
-                self.loop(self.stopover.knock,
-                          kwargs={'receiver_group': self.config['receiver_group']},
-                          interval=5))
+                self.loop(
+                    self.stopover.knock,
+                    kwargs={'receiver_group': self.config['receiver_group']},
+                    interval=5))
 
         if not embedded:
             self._setup_signals_handler()
@@ -247,12 +257,19 @@ class Link:
         pass
 
     def send(self, message, stream: str = None):
-        stream = self.config['default_output_stream'] if stream is None else stream
+        stream = self.config[
+            'default_output_stream'] if stream is None else stream
         if stream is None:
             raise ValueError('stream not provided')
         self.stopover.put(message, stream)
 
-    def launch_thread(self, target, args=None, kwargs=None, safe_stop=False):
+    def launch_thread(
+        self,
+        target,
+        args=None,
+        kwargs=None,
+        safe_stop=False,
+    ):
         thread = Thread(target, args=args, kwargs=kwargs)
         if safe_stop:
             with self._locks['threads']:
@@ -261,7 +278,15 @@ class Link:
         thread.start()
         return thread
 
-    def loop(self, target, args=None, kwargs=None, interval=0, wait=False, safe_stop=True):
+    def loop(
+        self,
+        target,
+        args=None,
+        kwargs=None,
+        interval=0,
+        wait=False,
+        safe_stop=True,
+    ):
         loop_task_kwargs = {
             'target': target,
             'args': args,
@@ -269,10 +294,18 @@ class Link:
             'interval': interval,
             'wait': wait,
         }
-        thread = self.launch_thread(self._loop_task, kwargs=loop_task_kwargs, safe_stop=safe_stop)
+        thread = self.launch_thread(self._loop_task,
+                                    kwargs=loop_task_kwargs,
+                                    safe_stop=safe_stop)
         return thread
 
-    def rpc_notify(self, method=None, args=None, kwargs=None, to='broadcast'):
+    def rpc_notify(
+        self,
+        method=None,
+        args=None,
+        kwargs=None,
+        to='broadcast',
+    ):
         if args is None:
             args = []
 
@@ -337,18 +370,20 @@ class Link:
     def _transform(self):
         no_messages = True
         for input_stream in self.config['input_streams']:
-            message = self.stopover.get(input_stream, self.config['receiver_group'])
-
+            message = self.stopover.get(input_stream,
+                                        self.config['receiver_group'])
             if not message:
                 continue
             no_messages = False
 
             result = self.transform(message)
-            output = result.value if isinstance(result, MessageResponse) else result
+            output = result.value if isinstance(result,
+                                                MessageResponse) else result
 
             if output:
                 if self.config['default_output_stream']:
-                    self.stopover.put(output, self.config['default_output_stream'])
+                    self.stopover.put(output,
+                                      self.config['default_output_stream'])
                 else:
                     raise ValueError('default stream is missing')
 
@@ -361,42 +396,66 @@ class Link:
         no_messages = True
         for input_stream in self.config['rpc_topics']:
             message = self.stopover.get(input_stream, self.uid)
+            call = message.value
 
             if not message:
                 continue
-            no_messages = False
 
-            if message.value['context']['uid'] != self.uid:
-                self._rpc_notify(message)
-            self.stopover.commit(message, self.uid)
+            no_messages = False
+            try:
+                if not 'context' in call or call['context']['uid'] != self.uid:
+                    self._rpc_notify(call)
+            except (KeyError, TypeError):
+                pass
+            finally:
+                self.stopover.commit(message, self.uid)
 
         if no_messages:
             time.sleep(self.config['no_messages_sleep_interval'])
 
-    def _rpc_notify(self, message):
-        method = message.value['method']
+    def _rpc_notify(self, call):
+        method = call['method']
+
+        if not 'args' in call:
+            call['args'] = []
+
+        if not 'kwargs' in call:
+            call['kwargs'] = {}
+
+        if not 'context' in call:
+            call['context'] = {'uuid': None, 'group': None}
+
         if not method in _rpc_enabled_methods:
             self.logger.log(f'method {method} cannot be called', level='error')
             return
 
-        if not 'method' in message.value:
-            self.logger.log(f'invalid RPC invocation: {message.value}', level='error')
+        if not 'method' in call:
+            self.logger.log(f'invalid RPC invocation: {call}', level='error')
             return
 
         try:
-            context = message.value['context']
-            args = [context] + message.value['args']
-            kwargs = message.value['kwargs']
-            self.logger.log(f"RPC invocation from {context['uid']} ({context['group']})",
-                            level='debug')
+            context = call['context']
+            args = [context] + call['args']
+            kwargs = call['kwargs']
+            self.logger.log(
+                f"RPC invocation from {context['uid']} ({context['group']})",
+                level='debug')
             with self._locks['rpc_lock']:
-                getattr(self, message.value['method'])(*args, **kwargs)
+                getattr(self, call['method'])(*args, **kwargs)
 
         except Exception:
-            self.logger.log(f'error when invoking {method} remotely', level='exception')
+            self.logger.log(f'error when invoking {method} remotely',
+                            level='exception')
 
     @suicide_on_error
-    def _loop_task(self, target, args, kwargs, interval, wait):
+    def _loop_task(
+        self,
+        target,
+        args,
+        kwargs,
+        interval,
+        wait,
+    ):
         if wait:
             time.sleep(interval)
 
@@ -415,7 +474,8 @@ class Link:
             target(*args, **kwargs)
 
             while not current_thread().will_stop:
-                continue_sleeping = (utils.get_timestamp() - start_timestamp) < interval
+                continue_sleeping = (utils.get_timestamp() -
+                                     start_timestamp) < interval
                 if not continue_sleeping:
                     break
                 time.sleep(self.config['intervals']['loop_check_stop'])
