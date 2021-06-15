@@ -24,4 +24,8 @@ setup(name='catenae-stopover',
           "Programming Language :: Python :: Implementation :: PyPy",
           "Topic :: Software Development :: Libraries :: Python Modules",
       ],
-      install_requires=['stopover >= 1.214.0', 'orderedset ~= 2.0.3', 'falcon >= 3.0.0, < 4.0.0', 'cherrybone'])
+      install_requires=[
+          'stopover >= 1.214.0',
+          'orderedset ~= 2.0.3',
+          'falcon >= 3.0.0, < 4.0.0',
+      ])

@@ -263,7 +263,8 @@ class Link:
                     interval=5))
 
         if self.config['enable_health']:
-            HealthCheck(self.config['health_port']).start()
+            health_server = HealthCheck(self.config['health_port'])
+            self.launch_thread(health_server.start)
 
         if not embedded:
             self._setup_signals_handler()
