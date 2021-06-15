@@ -1,2 +1,5 @@
-stopover>=21.3.6
-orderedset==2.0.3
+stopover >= 1.214.0
+orderedset ~= 2.0.3
+falcon >= 3.0.0, < 4.0.0
+cherrybone
+

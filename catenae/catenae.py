@@ -12,7 +12,7 @@
 #          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼
 #
 # Catenae 3.x Graphene
-# Copyright (C) 2017-2020 Rodrigo Martínez Castaño
+# Copyright (C) 2017-2021 Rodrigo Martínez Castaño
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@
 # limitations under the License.
 
 from stopover import Stopover, MessageResponse
+from typing import List, Dict
 import time
 import catenae
 from os import environ
@@ -35,6 +36,7 @@ import traceback
 import argparse
 from .logger import Logger
 from .threading import Thread, Lock, current_thread
+from .health import HealthCheck
 from . import utils
 
 _rpc_enabled_methods = set()
@@ -67,18 +69,27 @@ class Link:
     }
 
     def __init__(self,
-                 endpoints: list = None,
+                 endpoint: str = None,
+                 endpoints: List = None,
                  input_stream: str = None,
-                 input_streams: list = None,
+                 input_streams: List = None,
                  default_output_stream: str = None,
                  receiver_group: str = None,
+                 rpc_enabled: bool = None,
+                 enable_health: bool = None,
+                 health_port: int = None,
                  log_level: str = None,
                  **ignored_kwargs):
         self.logger = Logger(self, level=log_level)
 
+        if endpoint:
+            endpoints = [endpoint]
+        if not endpoints:
+            endpoints = []
+
         if input_stream:
             input_streams = [input_stream]
-        if input_streams is None:
+        if not endpoints:
             input_streams = []
 
         self._config = dict(Link.DEFAULT_CONFIG)
@@ -89,7 +100,9 @@ class Link:
             'default_output_stream': default_output_stream,
             'receiver_group': receiver_group if receiver_group \
                               else self.__class__.__name__,
-            'rpc_enabled': False,
+            'rpc_enabled': True if rpc_enabled else False,
+            'enable_health': False if enable_health is False else True,
+            'health_port': health_port if health_port else 2094,
             'rpc_topics': [f'catenae_rpc_{self.uid}',
                            f'catenae_rpc_{self.__class__.__name__.lower()}',
                             'catenae_rpc_broadcast']
@@ -132,10 +145,11 @@ class Link:
 
         parser.add_argument('-e',
                             '--endpoint',
+                            '--endpoints',
                             action='store',
                             dest='endpoint',
                             help='Message broker endpoint. \
-                            E.g., http://localhost:9092',
+                            E.g., http://localhost:5704',
                             required=False)
 
         parser.add_argument('-i',
@@ -147,7 +161,7 @@ class Link:
                             required=False)
 
         parser.add_argument('-o',
-                            '--output',
+                            '--default-output',
                             action='store',
                             dest='default_output_stream',
                             help='Default output stream.',
@@ -210,9 +224,9 @@ class Link:
 
     def start(self,
               startup_text: str = None,
-              setup_kwargs: dict = None,
+              setup_kwargs: Dict = None,
               embedded: bool = False,
-              **ignored_kwargs):
+              **_):
         with self._locks['start_stop']:
             if self._started:
                 return
@@ -247,6 +261,9 @@ class Link:
                     self.stopover.knock,
                     kwargs={'receiver_group': self.config['receiver_group']},
                     interval=5))
+
+        if self.config['enable_health']:
+            HealthCheck(self.config['health_port']).start()
 
         if not embedded:
             self._setup_signals_handler()
@@ -483,7 +500,7 @@ class Link:
         for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
             signal.signal(getattr(signal, signal_name), self._signal_handler)
 
-    def _signal_handler(self, sig, frame):
+    def _signal_handler(self, sig, _):
         if sig == signal.SIGINT:
             self.suicide('SIGINT')
         elif sig == signal.SIGTERM:
