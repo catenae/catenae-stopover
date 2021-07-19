@@ -76,6 +76,7 @@ class Link:
                  default_output_stream: str = None,
                  receiver_group: str = None,
                  rpc_enabled: bool = None,
+                 rpc_by_uid: bool = None,
                  enable_health: bool = None,
                  health_port: int = None,
                  log_level: str = None,
@@ -103,10 +104,12 @@ class Link:
             'rpc_enabled': True if rpc_enabled else False,
             'enable_health': False if enable_health is False else True,
             'health_port': health_port if health_port else 2094,
-            'rpc_topics': [f'catenae_rpc_{self.uid}',
-                           f'catenae_rpc_{self.__class__.__name__.lower()}',
+            'rpc_topics': [f'catenae_rpc_{self.__class__.__name__.lower()}',
                             'catenae_rpc_broadcast']
         })
+        if rpc_by_uid:
+            self._config['rpc_topics'].append(f'catenae_rpc_{self.uid}')
+
         self._load_args()
 
         if ignored_kwargs:
