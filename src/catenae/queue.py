@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 
 import threading
-import multiprocessing
 import time
 from .utils import get_timestamp
 from .errors import EmptyError

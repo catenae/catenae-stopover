@@ -17,7 +17,11 @@ def get_timestamp_ms():
 
 
 def dump_dict_pretty(input_dict):
-    return json.dumps(input_dict, separators=(',', ':'), indent=4, ensure_ascii=False)
+    return json.dumps(
+        input_dict,
+        indent=4,
+        ensure_ascii=False
+    )
 
 
 def dump_dict(input_dict):

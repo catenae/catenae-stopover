@@ -12,7 +12,8 @@ class NoLoggingWSGIRequestHandler(WSGIRequestHandler):
 
 class HealthCheck:
     def __init__(self, port):
-        self.server = WSGIServer(('0.0.0.0', port), NoLoggingWSGIRequestHandler)
+        self.server = WSGIServer(
+            ('0.0.0.0', port), NoLoggingWSGIRequestHandler)
         api = falcon.App()
         api.add_route('/health', self)
         self.server.set_app(api)

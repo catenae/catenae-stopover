@@ -3,12 +3,11 @@ from catenae import Link
 import logging
 import cherrypy
 from threading import Lock
-import json
 import time
-import pickle
 
 logging.getLogger().setLevel(logging.INFO)
-logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 
 
 class CustomLink(Link):

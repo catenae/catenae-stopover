@@ -4,7 +4,6 @@
 import threading
 from .queue import ThreadingQueue
 from .errors import EmptyError
-from threading import Lock, current_thread
 
 
 def should_stop():
@@ -60,9 +59,12 @@ class ThreadPool:
     def _worker_target(self, index):
         while not self.threads[index].will_stop:
             try:
-                target, args, kwargs = self.tasks_queue.get(timeout=1, block=False)
+                target, args, kwargs = self.tasks_queue.get(
+                    timeout=1, block=False)
                 target(*args, **kwargs)
             except EmptyError:
                 pass
             except Exception:
-                self.link_instance.logger.log(f'exception during the execution of a task', level='exception')
+                self.link_instance.logger.log(
+                    'exception during the execution of a task',
+                    level='exception')

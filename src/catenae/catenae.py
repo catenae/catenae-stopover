@@ -1,17 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-#          ◼◼◼            ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼     ◼◼◼         ◼◼◼       ◼◼◼           ◼◼                ◼◼◼
-#        ◼◼◼             ◼◼◼◼            ◼◼           ◼◼◼           ◼◼◼◼      ◼◼◼          ◼◼◼◼             ◼◼◼
-#      ◼◼◼             ◼◼◼  ◼◼◼          ◼◼         ◼◼◼             ◼◼◼◼◼     ◼◼◼        ◼◼◼  ◼◼◼         ◼◼◼
-#    ◼◼◼              ◼◼◼    ◼◼◼         ◼◼       ◼◼◼               ◼◼◼ ◼◼◼   ◼◼◼       ◼◼◼    ◼◼◼      ◼◼◼
-#  ◼◼◼               ◼◼◼      ◼◼◼        ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼  ◼◼◼  ◼◼◼  ◼◼◼      ◼◼◼      ◼◼◼   ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼
-#    ◼◼◼            ◼◼◼        ◼◼◼       ◼◼       ◼◼◼               ◼◼◼    ◼◼ ◼◼◼     ◼◼◼        ◼◼◼    ◼◼◼
-#      ◼◼◼         ◼◼◼          ◼◼◼      ◼◼         ◼◼◼             ◼◼◼     ◼◼◼◼◼    ◼◼◼          ◼◼◼     ◼◼◼
-#        ◼◼◼      ◼◼◼            ◼◼◼     ◼◼           ◼◼◼           ◼◼◼      ◼◼◼◼   ◼◼◼            ◼◼◼      ◼◼◼
-#          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼
+#                                                                                                                         # noqa: E501
+#          ◼◼◼            ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼     ◼◼◼         ◼◼◼       ◼◼◼           ◼◼                ◼◼◼         # noqa: E501
+#        ◼◼◼             ◼◼◼◼            ◼◼           ◼◼◼           ◼◼◼◼      ◼◼◼          ◼◼◼◼             ◼◼◼           # noqa: E501
+#      ◼◼◼             ◼◼◼  ◼◼◼          ◼◼         ◼◼◼             ◼◼◼◼◼     ◼◼◼        ◼◼◼  ◼◼◼         ◼◼◼             # noqa: E501
+#    ◼◼◼              ◼◼◼    ◼◼◼         ◼◼       ◼◼◼               ◼◼◼ ◼◼◼   ◼◼◼       ◼◼◼    ◼◼◼      ◼◼◼               # noqa: E501
+#  ◼◼◼               ◼◼◼      ◼◼◼        ◼◼     ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼  ◼◼◼  ◼◼◼  ◼◼◼      ◼◼◼      ◼◼◼   ◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼◼  # noqa: E501
+#    ◼◼◼            ◼◼◼        ◼◼◼       ◼◼       ◼◼◼               ◼◼◼    ◼◼ ◼◼◼     ◼◼◼        ◼◼◼    ◼◼◼               # noqa: E501
+#      ◼◼◼         ◼◼◼          ◼◼◼      ◼◼         ◼◼◼             ◼◼◼     ◼◼◼◼◼    ◼◼◼          ◼◼◼     ◼◼◼             # noqa: E501
+#        ◼◼◼      ◼◼◼            ◼◼◼     ◼◼           ◼◼◼           ◼◼◼      ◼◼◼◼   ◼◼◼            ◼◼◼      ◼◼◼           # noqa: E501
+#          ◼◼◼   ◼◼◼              ◼◼◼    ◼◼             ◼◼◼         ◼◼◼       ◼◼◼  ◼◼◼              ◼◼◼       ◼◼◼         # noqa: E501
+#                                                                                                                         # noqa: E501
 #
-# Catenae 3.x Graphene
+# Catenae for Stopover
 # Copyright (C) 2017-2021 Rodrigo Martínez Castaño
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -26,7 +28,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from stopover import Stopover, MessageResponse
+import stopover
 from typing import List, Dict
 import time
 import catenae
@@ -35,7 +37,8 @@ import signal
 import traceback
 import argparse
 from .logger import Logger
-from .threading import Thread, Lock, current_thread
+from .threading import Thread
+from threading import Lock, current_thread
 from .health import HealthCheck
 from . import utils
 
@@ -43,7 +46,8 @@ _rpc_enabled_methods = set()
 
 
 def rpc(method):
-    if method.__name__ not in _rpc_enabled_methods and method.__name__ != 'suicide_on_error':
+    if (method.__name__ not in _rpc_enabled_methods
+            and method.__name__ != 'suicide_on_error'):
         _rpc_enabled_methods.add(method.__name__)
     return method
 
@@ -80,18 +84,21 @@ class Link:
                  enable_health: bool = None,
                  health_port: int = None,
                  log_level: str = None,
+                 progress_without_commit: bool = None,
                  **ignored_kwargs):
         self.logger = Logger(self, level=log_level)
 
-        if endpoint:
+        if endpoint is not None:
             endpoints = [endpoint]
         if not endpoints:
             endpoints = []
 
-        if input_stream:
+        if input_stream is not None:
             input_streams = [input_stream]
-        if not endpoints:
+        if not input_streams:
             input_streams = []
+
+        self._uncommitted_messages = []
 
         self._config = dict(Link.DEFAULT_CONFIG)
         self._set_uid()
@@ -99,13 +106,15 @@ class Link:
             'endpoints': endpoints,
             'input_streams': input_streams,
             'default_output_stream': default_output_stream,
-            'receiver_group': receiver_group if receiver_group \
-                              else self.__class__.__name__,
+            'receiver_group': (receiver_group if receiver_group
+                            else self.__class__.__name__),
             'rpc_enabled': True if rpc_enabled else False,
             'enable_health': False if enable_health is False else True,
             'health_port': health_port if health_port else 2094,
             'rpc_topics': [f'catenae_rpc_{self.__class__.__name__.lower()}',
-                            'catenae_rpc_broadcast']
+                            'catenae_rpc_broadcast'],
+            'progress_without_commit': (True if progress_without_commit
+                                        else False),
         })
         if rpc_by_uid:
             self._config['rpc_topics'].append(f'catenae_rpc_{self.uid}')
@@ -117,8 +126,10 @@ class Link:
                 f'the following kwargs were ignored: {ignored_kwargs}')
 
         if self._config['endpoints']:
-            self.stopover = Stopover(endpoint=self._config['endpoints'][0],
-                                     uid=self._config['uid'])
+            self.stopover = stopover.Stopover(
+                endpoint=self._config['endpoints'][0],
+                uid=self._config['uid']
+            )
         else:
             self.stopover = None
 
@@ -131,9 +142,6 @@ class Link:
 
         self._started = False
         self._stopped = False
-
-        self.logger.log(
-            f'configuration: {utils.dump_dict_pretty(self._config)}')
 
     @property
     def env(self):
@@ -159,8 +167,8 @@ class Link:
                             '--input',
                             action='store',
                             dest='input_streams',
-                            help='Input streams. Several streams ' +
-                            'can be specified separated by commas',
+                            help='Input streams. Several streams '
+                            + 'can be specified separated by commas',
                             required=False)
 
         parser.add_argument('-o',
@@ -236,8 +244,11 @@ class Link:
 
         if not startup_text:
             self.logger.log(catenae.text_logo)
+        self.logger.log(f'catenae  v{catenae.__version__}')
+        self.logger.log(f'stopover v{stopover.__version__}')
+
         self.logger.log(
-            f'Catenae v{catenae.__version__} {catenae.__version_name__}')
+            f'configuration:\n{utils.dump_dict_pretty(self._config)}')
 
         if startup_text:
             self.logger.log(startup_text)
@@ -382,6 +393,11 @@ class Link:
         # Kill the thread that invoked the suicide method
         raise SystemExit
 
+    def commit(self):
+        for message in self._uncommitted_messages:
+            self.stopover.commit(message, self.config['receiver_group'])
+        self._uncommitted_messages.clear()
+
     def _set_uid(self):
         if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
             self._config['uid'] = environ['HOSTNAME']
@@ -391,15 +407,27 @@ class Link:
     def _transform(self):
         no_messages = True
         for input_stream in self.config['input_streams']:
-            message = self.stopover.get(input_stream,
-                                        self.config['receiver_group'])
+            message = None
+            try:
+                message = self.stopover.get(
+                    input_stream,
+                    self.config['receiver_group'],
+                    progress_without_commit=self.config[
+                        'progress_without_commit'],
+                )
+            except Exception:
+                pass
+
             if not message:
                 continue
             no_messages = False
 
+            if self.config['progress_without_commit']:
+                self._uncommitted_messages.append(message)
+
             result = self.transform(message)
             output = result.value if isinstance(result,
-                                                MessageResponse) else result
+                                                stopover.Response) else result
 
             if output:
                 if self.config['default_output_stream']:
@@ -408,7 +436,8 @@ class Link:
                 else:
                     raise ValueError('default stream is missing')
 
-            self.stopover.commit(message, self.config['receiver_group'])
+            if not self.config['progress_without_commit']:
+                self.stopover.commit(message, self.config['receiver_group'])
 
         if no_messages:
             time.sleep(self.config['no_messages_sleep_interval'])
@@ -423,7 +452,7 @@ class Link:
             call = message.value
             no_messages = False
             try:
-                if not 'context' in call or call['context']['uid'] != self.uid:
+                if 'context' not in call or call['context']['uid'] != self.uid:
                     self._rpc_notify(call)
             except (KeyError, TypeError):
                 pass
@@ -436,20 +465,20 @@ class Link:
     def _rpc_notify(self, call):
         method = call['method']
 
-        if not 'args' in call:
+        if 'args' not in call:
             call['args'] = []
 
-        if not 'kwargs' in call:
+        if 'kwargs' not in call:
             call['kwargs'] = {}
 
-        if not 'context' in call:
+        if 'context' not in call:
             call['context'] = {'uid': None, 'group': None}
 
-        if not method in _rpc_enabled_methods:
+        if method not in _rpc_enabled_methods:
             self.logger.log(f'method {method} cannot be called', level='error')
             return
 
-        if not 'method' in call:
+        if 'method' not in call:
             self.logger.log(f'invalid RPC invocation: {call}', level='error')
             return
 
@@ -474,7 +503,7 @@ class Link:
         args,
         kwargs,
         interval,
-        wait,
+        wait
     ):
         if wait:
             time.sleep(interval)
@@ -494,8 +523,8 @@ class Link:
             target(*args, **kwargs)
 
             while not current_thread().will_stop:
-                continue_sleeping = (utils.get_timestamp() -
-                                     start_timestamp) < interval
+                continue_sleeping = (
+                    utils.get_timestamp() - start_timestamp) < interval
                 if not continue_sleeping:
                     break
                 time.sleep(self.config['intervals']['loop_check_stop'])

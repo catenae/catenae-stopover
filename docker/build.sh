@@ -1,4 +1,5 @@
 #!/bin/bash
+cd $(dirname $0)
 docker pull catenae/foundation-stopover
 source env.sh
 docker rmi catenae/link-stopover:$VERSION 2> /dev/null
