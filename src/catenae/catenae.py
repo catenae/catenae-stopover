@@ -445,7 +445,12 @@ class Link:
     def _rpc_notify_handler(self):
         no_messages = True
         for input_stream in self.config['rpc_topics']:
-            message = self.stopover.get(input_stream, self.uid)
+            message = None
+            try:
+                message = self.stopover.get(input_stream, self.uid)
+            except Exception:
+                pass
+
             if not message:
                 continue
 
