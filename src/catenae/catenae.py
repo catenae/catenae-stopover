@@ -267,15 +267,15 @@ class Link:
 
         if not startup_text:
             print(catenae.text_logo)
+        else:
+            self.logger.log(startup_text)
+
         self.logger.log(f'catenae  v{catenae.__version__}')
         self.logger.log(f'stopover v{stopover.__version__}')
 
         self.logger.log(
             f'configuration:\n{utils.dump_dict_pretty(self._config)}'
         )
-
-        if startup_text:
-            self.logger.log(startup_text)
 
         with self._locks['start_stop']:
             self._started = True
