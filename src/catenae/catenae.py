@@ -268,7 +268,7 @@ class Link:
         if not startup_text:
             print(catenae.text_logo)
         else:
-            self.logger.log(startup_text)
+            print(startup_text)
 
         self.logger.log(f'catenae  v{catenae.__version__}')
         self.logger.log(f'stopover v{stopover.__version__}')
