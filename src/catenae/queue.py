@@ -22,7 +22,11 @@ class CustomQueue:
 
 
 class ThreadingQueue(CustomQueue):
-    def __init__(self, size=0, circular=False):
+    def __init__(
+        self,
+        size=0,
+        circular=False,
+    ):
         super().__init__(size, circular)
         self._queue = list()
         self._lock = threading.Lock()
@@ -31,7 +35,12 @@ class ThreadingQueue(CustomQueue):
         if self._size > 0 and len(self._queue) > self._size:
             self._queue.pop(0)
 
-    def put(self, item, block=True, timeout=None):
+    def put(
+        self,
+        item,
+        block=True,
+        timeout=None,
+    ):
         if self._circular:
             self._lock.acquire()
             self._queue.append(item)
@@ -51,7 +60,11 @@ class ThreadingQueue(CustomQueue):
                 raise EmptyError
             time.sleep(ThreadingQueue.BLOCKING_SECONDS)
 
-    def get(self, block=True, timeout=None):
+    def get(
+        self,
+        block=True,
+        timeout=None,
+    ):
         if timeout is not None:
             block = False
 

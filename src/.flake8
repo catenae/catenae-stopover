@@ -6,4 +6,3 @@ exclude =
     __pycache__,
     build,
     dist
-

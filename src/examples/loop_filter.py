@@ -11,4 +11,7 @@ class LoopFilter(Link):
 
 
 if __name__ == "__main__":
-    LoopFilter(input_stream='stream0', default_output_stream='stream0').start()
+    LoopFilter(
+        input_stream='stream0',
+        default_output_stream='stream0',
+    ).start()

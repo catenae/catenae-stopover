@@ -11,7 +11,12 @@ def should_stop():
 
 
 class Thread(threading.Thread):
-    def __init__(self, target, args=None, kwargs=None):
+    def __init__(
+        self,
+        target,
+        args=None,
+        kwargs=None,
+    ):
         if args is None:
             args = tuple()
         elif isinstance(args, list):
@@ -34,7 +39,11 @@ class Thread(threading.Thread):
 
 
 class ThreadPool:
-    def __init__(self, link_instance, num_threads=1):
+    def __init__(
+        self,
+        link_instance,
+        num_threads=1,
+    ):
         self.link_instance = link_instance
         self.tasks_queue = ThreadingQueue()
         self.threads = []
@@ -44,7 +53,12 @@ class ThreadPool:
             self.threads.append(thread)
             thread.start()
 
-    def submit(self, target, args=None, kwargs=None):
+    def submit(
+        self,
+        target,
+        args=None,
+        kwargs=None,
+    ):
         if args is None:
             args = []
 
@@ -60,11 +74,16 @@ class ThreadPool:
         while not self.threads[index].will_stop:
             try:
                 target, args, kwargs = self.tasks_queue.get(
-                    timeout=1, block=False)
+                    timeout=1,
+                    block=False,
+                )
                 target(*args, **kwargs)
+
             except EmptyError:
                 pass
+
             except Exception:
                 self.link_instance.logger.log(
                     'exception during the execution of a task',
-                    level='exception')
+                    level='exception',
+                )

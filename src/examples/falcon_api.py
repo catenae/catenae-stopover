@@ -6,8 +6,10 @@ from threading import Lock
 import time
 
 logging.getLogger().setLevel(logging.INFO)
-logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
+logging.basicConfig(
+    format='%(asctime)-15s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 
 class CustomLink(Link):
@@ -32,7 +34,12 @@ class API:
     def __init__(self, link):
         self.link = link
 
-    def on_get(self, request, response, message):
+    def on_get(
+        self,
+        _,
+        response,
+        message,
+    ):
         slot_available = False
         while not slot_available:
             with self.link.lock:
@@ -50,19 +57,24 @@ link = CustomLink(default_output_stream='stream0')
 api = falcon.App()
 api.add_route('/{message}', API(link))
 
-cherrypy.config.update({
-    'server.socket_host': '0.0.0.0',
-    'server.socket_port': 7474,
-    'server.thread_pool': 8,
-    'engine.autoreload.on': False,
-    'checker.on': False,
-    'tools.log_headers.on': False,
-    'request.show_tracebacks': False,
-    'request.show_mismatched_params': False,
-    'log.screen': False,
-    'engine.SIGHUP': None,
-    'engine.SIGTERM': None
-})
+cherrypy.config.update(
+    {
+        'server.socket_host': '0.0.0.0',
+        'server.socket_port': 7474,
+        'server.thread_pool': 8,
+        'engine.autoreload.on': False,
+        'checker.on': False,
+        'tools.log_headers.on': False,
+        'request.show_tracebacks': False,
+        'request.show_mismatched_params': False,
+        'log.screen': False,
+        'engine.SIGHUP': None,
+        'engine.SIGTERM': None,
+    }
+)
 cherrypy.tree.graft(api, '/')
 cherrypy.engine.start()
-link.start(embedded=True, setup_kwargs={'cherrypy_engine': cherrypy.engine})
+link.start(
+    embedded=True,
+    setup_kwargs={'cherrypy_engine': cherrypy.engine},
+)

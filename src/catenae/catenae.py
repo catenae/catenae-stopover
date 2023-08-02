@@ -72,20 +72,22 @@ class Link:
         }
     }
 
-    def __init__(self,
-                 endpoint: str = None,
-                 endpoints: List = None,
-                 input_stream: str = None,
-                 input_streams: List = None,
-                 default_output_stream: str = None,
-                 receiver_group: str = None,
-                 rpc_enabled: bool = None,
-                 rpc_by_uid: bool = None,
-                 enable_health: bool = None,
-                 health_port: int = None,
-                 log_level: str = None,
-                 progress_without_commit: bool = None,
-                 **ignored_kwargs):
+    def __init__(
+        self,
+        endpoint: str = None,
+        endpoints: List = None,
+        input_stream: str = None,
+        input_streams: List = None,
+        default_output_stream: str = None,
+        receiver_group: str = None,
+        rpc_enabled: bool = None,
+        rpc_by_uid: bool = None,
+        enable_health: bool = None,
+        health_port: int = None,
+        log_level: str = None,
+        progress_without_commit: bool = None,
+        **ignored_kwargs,
+    ):
         self.logger = Logger(self, level=log_level)
 
         if endpoint is not None:
@@ -102,20 +104,27 @@ class Link:
 
         self._config = dict(Link.DEFAULT_CONFIG)
         self._set_uid()
-        self._config.update({
-            'endpoints': endpoints,
-            'input_streams': input_streams,
-            'default_output_stream': default_output_stream,
-            'receiver_group': (receiver_group if receiver_group
-                            else self.__class__.__name__),
-            'rpc_enabled': True if rpc_enabled else False,
-            'enable_health': False if enable_health is False else True,
-            'health_port': health_port if health_port else 2094,
-            'rpc_topics': [f'catenae_rpc_{self.__class__.__name__.lower()}',
-                            'catenae_rpc_broadcast'],
-            'progress_without_commit': (True if progress_without_commit
-                                        else False),
-        })
+        self._config.update(
+            {
+                'endpoints': endpoints,
+                'input_streams': input_streams,
+                'default_output_stream': default_output_stream,
+                'receiver_group': (
+                    receiver_group
+                    if receiver_group else self.__class__.__name__
+                ),
+                'rpc_enabled': True if rpc_enabled else False,
+                'enable_health': False if enable_health is False else True,
+                'health_port': health_port if health_port else 2094,
+                'rpc_topics': [
+                    f'catenae_rpc_{self.__class__.__name__.lower()}',
+                    'catenae_rpc_broadcast'
+                ],
+                'progress_without_commit': (
+                    True if progress_without_commit else False
+                ),
+            }
+        )
         if rpc_by_uid:
             self._config['rpc_topics'].append(f'catenae_rpc_{self.uid}')
 
@@ -123,12 +132,13 @@ class Link:
 
         if ignored_kwargs:
             self.logger.log(
-                f'the following kwargs were ignored: {ignored_kwargs}')
+                f'the following kwargs were ignored: {ignored_kwargs}'
+            )
 
         if self._config['endpoints']:
             self.stopover = stopover.Stopover(
                 endpoint=self._config['endpoints'][0],
-                uid=self._config['uid']
+                uid=self._config['uid'],
             )
         else:
             self.stopover = None
@@ -154,50 +164,61 @@ class Link:
     def _load_args(self):
         parser = argparse.ArgumentParser()
 
-        parser.add_argument('-e',
-                            '--endpoint',
-                            '--endpoints',
-                            action='store',
-                            dest='endpoint',
-                            help='Message broker endpoint. \
-                            E.g., http://localhost:5704',
-                            required=False)
+        parser.add_argument(
+            '-e',
+            '--endpoint',
+            '--endpoints',
+            action='store',
+            dest='endpoint',
+            help='Message broker endpoint. E.g., http://localhost:5704',
+            required=False,
+        )
 
-        parser.add_argument('-i',
-                            '--input',
-                            action='store',
-                            dest='input_streams',
-                            help='Input streams. Several streams '
-                            + 'can be specified separated by commas',
-                            required=False)
+        parser.add_argument(
+            '-i',
+            '--input',
+            action='store',
+            dest='input_streams',
+            help='Input streams. Several streams '
+            + 'can be specified separated by commas',
+            required=False,
+        )
 
-        parser.add_argument('-o',
-                            '--default-output',
-                            action='store',
-                            dest='default_output_stream',
-                            help='Default output stream.',
-                            required=False)
+        parser.add_argument(
+            '-o',
+            '--default-output',
+            action='store',
+            dest='default_output_stream',
+            help='Default output stream.',
+            required=False,
+        )
 
-        parser.add_argument('-g',
-                            '--receiver-group',
-                            action='store',
-                            dest='receiver_group',
-                            help='Receiver group.',
-                            required=False)
+        parser.add_argument(
+            '-g',
+            '--receiver-group',
+            action='store',
+            dest='receiver_group',
+            help='Receiver group.',
+            required=False,
+        )
 
-        parser.add_argument('-u',
-                            '--uid',
-                            action='store',
-                            dest='uid',
-                            help='Link\'s Unique ID.',
-                            required=False)
+        parser.add_argument(
+            '-u',
+            '--uid',
+            action='store',
+            dest='uid',
+            help='Link\'s Unique ID.',
+            required=False,
+        )
 
-        parser.add_argument('-r',
-                            '--rpc',
-                            action='store_true',
-                            dest='rpc_enabled',
-                            help='Enable RPC.',
-                            required=False)
+        parser.add_argument(
+            '-r',
+            '--rpc',
+            action='store_true',
+            dest='rpc_enabled',
+            help='Enable RPC.',
+            required=False,
+        )
 
         parsed_args = parser.parse_known_args()
         link_args = parsed_args[0]
@@ -210,8 +231,8 @@ class Link:
             self._config['input_streams'] = link_args.input_streams.split(',')
 
         if link_args.default_output_stream:
-            self._config[
-                'default_output_stream'] = link_args.default_output_stream
+            self._config['default_output_stream'
+                         ] = link_args.default_output_stream
 
         if link_args.receiver_group:
             self._config['receiver_group'] = link_args.receiver_group
@@ -233,22 +254,25 @@ class Link:
     def setup(self):
         pass
 
-    def start(self,
-              startup_text: str = None,
-              setup_kwargs: Dict = None,
-              embedded: bool = False,
-              **_):
+    def start(
+        self,
+        startup_text: str = None,
+        setup_kwargs: Dict = None,
+        embedded: bool = False,
+        **_,
+    ):
         with self._locks['start_stop']:
             if self._started:
                 return
 
         if not startup_text:
-            self.logger.log(catenae.text_logo)
+            print(catenae.text_logo)
         self.logger.log(f'catenae  v{catenae.__version__}')
         self.logger.log(f'stopover v{stopover.__version__}')
 
         self.logger.log(
-            f'configuration:\n{utils.dump_dict_pretty(self._config)}')
+            f'configuration:\n{utils.dump_dict_pretty(self._config)}'
+        )
 
         if startup_text:
             self.logger.log(startup_text)
@@ -274,7 +298,9 @@ class Link:
                 self.loop(
                     self.stopover.knock,
                     kwargs={'receiver_group': self.config['receiver_group']},
-                    interval=5))
+                    interval=5
+                )
+            )
 
         if self.config['enable_health']:
             health_server = HealthCheck(self.config['health_port'])
@@ -289,8 +315,8 @@ class Link:
         pass
 
     def send(self, message, stream: str = None):
-        stream = self.config[
-            'default_output_stream'] if stream is None else stream
+        stream = self.config['default_output_stream'
+                             ] if stream is None else stream
         if stream is None:
             raise ValueError('stream not provided')
         self.stopover.put(message, stream)
@@ -326,9 +352,9 @@ class Link:
             'interval': interval,
             'wait': wait,
         }
-        thread = self.launch_thread(self._loop_task,
-                                    kwargs=loop_task_kwargs,
-                                    safe_stop=safe_stop)
+        thread = self.launch_thread(
+            self._loop_task, kwargs=loop_task_kwargs, safe_stop=safe_stop
+        )
         return thread
 
     def rpc_notify(
@@ -357,7 +383,7 @@ class Link:
                 'uid': self.uid
             },
             'args': args,
-            'kwargs': kwargs
+            'kwargs': kwargs,
         }
 
         self.send(call, topic)
@@ -412,8 +438,8 @@ class Link:
                 message = self.stopover.get(
                     input_stream,
                     self.config['receiver_group'],
-                    progress_without_commit=self.config[
-                        'progress_without_commit'],
+                    progress_without_commit=self.
+                    config['progress_without_commit'],
                 )
             except Exception:
                 pass
@@ -426,13 +452,15 @@ class Link:
                 self._uncommitted_messages.append(message)
 
             result = self.transform(message)
-            output = result.value if isinstance(result,
-                                                stopover.Response) else result
+            output = result.value if isinstance(
+                result, stopover.Response
+            ) else result
 
             if output:
                 if self.config['default_output_stream']:
-                    self.stopover.put(output,
-                                      self.config['default_output_stream'])
+                    self.stopover.put(
+                        output, self.config['default_output_stream']
+                    )
                 else:
                     raise ValueError('default stream is missing')
 
@@ -493,23 +521,18 @@ class Link:
             kwargs = call['kwargs']
             self.logger.log(
                 f"RPC invocation from {context['uid']} ({context['group']})",
-                level='debug')
+                level='debug'
+            )
             with self._locks['rpc_lock']:
                 getattr(self, call['method'])(*args, **kwargs)
 
         except Exception:
-            self.logger.log(f'error when invoking {method} remotely',
-                            level='exception')
+            self.logger.log(
+                f'error when invoking {method} remotely', level='exception'
+            )
 
     @suicide_on_error
-    def _loop_task(
-        self,
-        target,
-        args,
-        kwargs,
-        interval,
-        wait
-    ):
+    def _loop_task(self, target, args, kwargs, interval, wait):
         if wait:
             time.sleep(interval)
 
@@ -529,7 +552,8 @@ class Link:
 
             while not current_thread().will_stop:
                 continue_sleeping = (
-                    utils.get_timestamp() - start_timestamp) < interval
+                    utils.get_timestamp() - start_timestamp
+                ) < interval
                 if not continue_sleeping:
                     break
                 time.sleep(self.config['intervals']['loop_check_stop'])
