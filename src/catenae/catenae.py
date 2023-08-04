@@ -86,9 +86,14 @@ class Link:
         health_port: int = None,
         log_level: str = None,
         progress_without_commit: bool = None,
+        binnakle_config: Dict = None,
         **ignored_kwargs,
     ):
-        self.logger = Logger(self, level=log_level)
+        self.logger = Logger(
+            self,
+            level=log_level,
+            config=binnakle_config,
+        )
 
         if endpoint is not None:
             endpoints = [endpoint]
@@ -272,10 +277,7 @@ class Link:
 
         self.logger.log(f'catenae  v{catenae.__version__}')
         self.logger.log(f'stopover v{stopover.__version__}')
-
-        self.logger.log(
-            f'configuration:\n{utils.dump_dict_pretty(self._config)}'
-        )
+        self.logger.log(self._config)
 
         with self._locks['start_stop']:
             self._started = True
