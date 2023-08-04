@@ -1,25 +1,14 @@
 import falcon
 from catenae import Link
-import logging
-import cherrypy
 from threading import Lock
 import time
-
-logging.getLogger().setLevel(logging.INFO)
-logging.basicConfig(
-    format='%(asctime)-15s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+import bjoern
 
 
 class CustomLink(Link):
-    def setup(self, cherrypy_engine):
-        self.cherrypy_engine = cherrypy_engine
+    def setup(self):
         self.lock = Lock()
         self.current_message = None
-
-    def stop(self):
-        self.cherrypy_engine.exit()
 
     def generator(self):
         with self.lock:
@@ -52,29 +41,12 @@ class API:
         response.media = {'message': message, 'status': 'ok'}
 
 
-link = CustomLink(default_output_stream='stream0')
+link = CustomLink(
+    default_output_stream='stream0',
+    binnakle_config={'pretty': True},
+)
+link.start(embedded=True)
 
 api = falcon.App()
 api.add_route('/{message}', API(link))
-
-cherrypy.config.update(
-    {
-        'server.socket_host': '0.0.0.0',
-        'server.socket_port': 7474,
-        'server.thread_pool': 8,
-        'engine.autoreload.on': False,
-        'checker.on': False,
-        'tools.log_headers.on': False,
-        'request.show_tracebacks': False,
-        'request.show_mismatched_params': False,
-        'log.screen': False,
-        'engine.SIGHUP': None,
-        'engine.SIGTERM': None,
-    }
-)
-cherrypy.tree.graft(api, '/')
-cherrypy.engine.start()
-link.start(
-    embedded=True,
-    setup_kwargs={'cherrypy_engine': cherrypy.engine},
-)
+bjoern.run(api, '0.0.0.0', 7474)

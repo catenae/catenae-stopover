@@ -14,4 +14,5 @@ if __name__ == "__main__":
     LoopFilter(
         input_stream='stream0',
         default_output_stream='stream0',
+        binnakle_config={'pretty': True},
     ).start()
