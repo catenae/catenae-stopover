@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import threading
-import time
-from .utils import get_timestamp
-from .errors import EmptyError
+from queue import Empty, Full, Queue
+from threading import Lock
+from .errors import EmptyError, TimeoutError
 
 
 class CustomQueue:
@@ -22,64 +21,31 @@ class CustomQueue:
 
 
 class ThreadingQueue(CustomQueue):
-    def __init__(
-        self,
-        size=0,
-        circular=False,
-    ):
+    def __init__(self, size=0, circular=False):
         super().__init__(size, circular)
-        self._queue = list()
-        self._lock = threading.Lock()
+        self._queue = Queue(maxsize=size)
+        self._lock = Lock()
 
-    def _truncate(self):
-        if self._size > 0 and len(self._queue) > self._size:
-            self._queue.pop(0)
-
-    def put(
-        self,
-        item,
-        block=True,
-        timeout=None,
-    ):
+    def put(self, item, block=True, timeout=None):
         if self._circular:
-            self._lock.acquire()
-            self._queue.append(item)
-            self._truncate()
-            self._lock.release()
+            with self._lock:
+                if self._size > 0 and self._queue.full():
+                    try:
+                        self._queue.get_nowait()
+                    except Empty:
+                        pass
+                self._queue.put_nowait(item)
             return
 
-        start_timestamp = get_timestamp()
-        while timeout is None or get_timestamp() - start_timestamp < timeout:
-            self._lock.acquire()
-            if self._size <= 0 or len(self._queue) < self._size:
-                self._queue.append(item)
-                self._lock.release()
-                return
-            self._lock.release()
-            if not block:
-                raise EmptyError
-            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
+        try:
+            self._queue.put(item, block=block,
+                            timeout=timeout if block else None)
+        except Full as error:
+            raise TimeoutError('queue is full') from error
 
-    def get(
-        self,
-        block=True,
-        timeout=None,
-    ):
-        if timeout is not None:
-            block = False
-
-        start_timestamp = get_timestamp()
-        while timeout is None or get_timestamp() - start_timestamp < timeout:
-            self._lock.acquire()
-            if len(self._queue) > 0:
-                item = self._queue.pop(0)
-                self._lock.release()
-                return item
-
-            self._lock.release()
-            if timeout is None and not block:
-                raise EmptyError
-            time.sleep(ThreadingQueue.BLOCKING_SECONDS)
-
-        if not block:
-            raise EmptyError
+    def get(self, block=True, timeout=None):
+        try:
+            return self._queue.get(block=block,
+                                   timeout=timeout if block else None)
+        except Empty as error:
+            raise EmptyError('queue is empty') from error

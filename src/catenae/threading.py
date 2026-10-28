@@ -7,7 +7,7 @@ from .errors import EmptyError
 
 
 def should_stop():
-    return threading.current_thread().will_stop
+    return getattr(threading.current_thread(), 'will_stop', False)
 
 
 class Thread(threading.Thread):
@@ -28,14 +28,17 @@ class Thread(threading.Thread):
             kwargs = dict()
 
         super().__init__(target=target, args=args, kwargs=kwargs)
-        self._will_stop = False
+        self._stop_event = threading.Event()
 
     def stop(self):
-        self._will_stop = True
+        self._stop_event.set()
+
+    def wait(self, timeout):
+        return self._stop_event.wait(timeout)
 
     @property
     def will_stop(self):
-        return self._will_stop
+        return self._stop_event.is_set()
 
 
 class ThreadPool:
@@ -44,6 +47,8 @@ class ThreadPool:
         link_instance,
         num_threads=1,
     ):
+        if num_threads < 1:
+            raise ValueError('num_threads must be positive')
         self.link_instance = link_instance
         self.tasks_queue = ThreadingQueue()
         self.threads = []
@@ -52,6 +57,13 @@ class ThreadPool:
             thread = Thread(self._worker_target, i)
             self.threads.append(thread)
             thread.start()
+
+    def stop(self):
+        for thread in self.threads:
+            thread.stop()
+        for thread in self.threads:
+            if thread is not threading.current_thread():
+                thread.join()
 
     def submit(
         self,
@@ -62,7 +74,7 @@ class ThreadPool:
         if args is None:
             args = []
 
-        if not isinstance(args, list):
+        if not isinstance(args, (list, tuple)):
             args = [args]
 
         if kwargs is None:
@@ -75,7 +87,6 @@ class ThreadPool:
             try:
                 target, args, kwargs = self.tasks_queue.get(
                     timeout=1,
-                    block=False,
                 )
                 target(*args, **kwargs)
 

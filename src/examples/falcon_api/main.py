@@ -2,7 +2,7 @@ import falcon
 from catenae import Link
 from threading import Lock
 import time
-import bjoern
+from waitress import serve
 
 
 class CustomLink(Link):
@@ -49,4 +49,4 @@ link.start(embedded=True)
 
 api = falcon.App()
 api.add_route('/{message}', API(link))
-bjoern.run(api, '0.0.0.0', 7474)
+serve(api, host='0.0.0.0', port=7474, threads=1)

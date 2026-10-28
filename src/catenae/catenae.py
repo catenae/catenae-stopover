@@ -29,6 +29,7 @@
 # limitations under the License.
 
 import stopover
+from copy import deepcopy
 from typing import List, Dict
 import time
 import catenae
@@ -36,19 +37,17 @@ from os import environ
 import signal
 import traceback
 import argparse
+from inspect import signature
 from .logger import Logger
 from .threading import Thread
 from threading import Lock, current_thread
 from .health import HealthCheck
 from . import utils
 
-_rpc_enabled_methods = set()
-
 
 def rpc(method):
-    if (method.__name__ not in _rpc_enabled_methods
-            and method.__name__ != 'suicide_on_error'):
-        _rpc_enabled_methods.add(method.__name__)
+    if method.__name__ != 'suicide_on_error':
+        method._catenae_rpc_enabled = True
     return method
 
 
@@ -64,6 +63,7 @@ def suicide_on_error(method):
 
 
 class Link:
+    DEFAULT_PICKLE_CLASSES = ()
     DEFAULT_CONFIG = {
         'no_messages_sleep_interval': .5,
         'intervals': {
@@ -87,6 +87,9 @@ class Link:
         log_level: str = None,
         progress_without_commit: bool = None,
         binnakle_config: Dict = None,
+        client_id: str = None,
+        client_secret: str = None,
+        allowed_pickle_classes=None,
         **ignored_kwargs,
     ):
         self.logger = Logger(
@@ -107,7 +110,7 @@ class Link:
 
         self._uncommitted_messages = []
 
-        self._config = dict(Link.DEFAULT_CONFIG)
+        self._config = deepcopy(Link.DEFAULT_CONFIG)
         self._set_uid()
         self._config.update(
             {
@@ -137,13 +140,20 @@ class Link:
 
         if ignored_kwargs:
             self.logger.log(
-                f'the following kwargs were ignored: {ignored_kwargs}'
+                f'the following kwargs were ignored: {sorted(ignored_kwargs)}'
             )
 
         if self._config['endpoints']:
             self.stopover = stopover.Stopover(
                 endpoint=self._config['endpoints'][0],
                 uid=self._config['uid'],
+                client_id=client_id,
+                client_secret=client_secret,
+                allowed_pickle_classes=(
+                    self.DEFAULT_PICKLE_CLASSES
+                    if allowed_pickle_classes is None
+                    else allowed_pickle_classes
+                ),
             )
         else:
             self.stopover = None
@@ -157,6 +167,8 @@ class Link:
 
         self._started = False
         self._stopped = False
+        self._health_server = None
+        self._setup_complete = False
 
     @property
     def env(self):
@@ -259,6 +271,34 @@ class Link:
     def setup(self):
         pass
 
+    def _health_liveness(self):
+        with self._locks['threads']:
+            return self._started and not self._stopped and all(thread.is_alive() for thread in self._threads)
+
+    def health_readiness(self):
+        checks = {'setup': self._setup_complete}
+        if not self._setup_complete:
+            return checks
+        if self.stopover is not None:
+            try:
+                checks['stopover'] = self.stopover.health()
+            except Exception:
+                checks['stopover'] = False
+        # Idle loops refresh this heartbeat too; absence of input is healthy.
+        with self._locks['threads']:
+            checks['loops'] = all(
+                thread.is_alive() and (not getattr(thread, 'iteration_started', None)
+                                      or time.monotonic() - thread.iteration_started < 300)
+                for thread in self._threads)
+        return checks
+
+    @staticmethod
+    def health_progress():
+        """Long-running consumers call this after a completed unit of work."""
+        thread = current_thread()
+        if getattr(thread, 'iteration_started', None) is not None:
+            thread.iteration_started = time.monotonic()
+
     def start(
         self,
         startup_text: str = None,
@@ -267,8 +307,9 @@ class Link:
         **_,
     ):
         with self._locks['start_stop']:
-            if self._started:
+            if self._started or self._stopped:
                 return
+            self._started = True
 
         if not startup_text:
             print(catenae.text_logo)
@@ -279,39 +320,46 @@ class Link:
         self.logger.log(f'stopover v{stopover.__version__}')
         self.logger.log(self._config)
 
-        with self._locks['start_stop']:
-            self._started = True
-
         if setup_kwargs is None:
             setup_kwargs = {}
-        self.setup(**setup_kwargs)
+        health_thread = None
+        if self.config['enable_health']:
+            self._health_server = HealthCheck(self.config['health_port'], self.health_readiness, self._health_liveness)
+            health_thread = self.launch_thread(self._health_server.start)
+        try:
+            self.setup(**setup_kwargs)
+        except BaseException:
+            if self._health_server is not None:
+                self._health_server.close()
+            raise
+
+        if self._stopped:
+            return
 
         if hasattr(self, 'generator'):
-            self._threads.append(self.loop(self.generator))
+            self.loop(self.generator)
 
         if self.stopover is not None:
             if self._config['rpc_enabled']:
-                self._threads.append(self.loop(self._rpc_notify_handler))
+                self.loop(self._rpc_notify_handler)
 
             if hasattr(self, 'transform'):
-                self._threads.append(self.loop(self._transform))
+                self.loop(self._transform)
 
-            self._threads.append(
-                self.loop(
-                    self.stopover.knock,
-                    kwargs={'receiver_group': self.config['receiver_group']},
-                    interval=5
-                )
+            self.loop(
+                self.stopover.knock,
+                kwargs={'receiver_group': self.config['receiver_group']},
+                interval=5
             )
 
-        if self.config['enable_health']:
-            health_server = HealthCheck(self.config['health_port'])
-            self.launch_thread(health_server.start)
+        self._setup_complete = True
 
         if not embedded:
             self._setup_signals_handler()
             for thread in self._threads:
                 thread.join()
+            if health_thread is not None:
+                health_thread.join()
 
     def stop(self):
         pass
@@ -347,6 +395,8 @@ class Link:
         wait=False,
         safe_stop=True,
     ):
+        if interval < 0:
+            raise ValueError('interval must be nonnegative')
         loop_task_kwargs = {
             'target': target,
             'args': args,
@@ -401,6 +451,9 @@ class Link:
         except Exception:
             self.logger.log('error when executing stop()', level='exception')
 
+        if self._health_server is not None:
+            self._health_server.close()
+
         if message is None:
             message = '[SUICIDE]'
         else:
@@ -411,9 +464,6 @@ class Link:
         else:
             self.logger.log(message, level='warn')
 
-        while not self._started:
-            time.sleep(self.config['intervals']['loop_check_start'])
-
         with self._locks['threads']:
             for thread in self._threads:
                 thread.stop()
@@ -422,12 +472,13 @@ class Link:
         raise SystemExit
 
     def commit(self):
-        for message in self._uncommitted_messages:
+        while self._uncommitted_messages:
+            message = self._uncommitted_messages[0]
             self.stopover.commit(message, self.config['receiver_group'])
-        self._uncommitted_messages.clear()
+            self._uncommitted_messages.pop(0)
 
     def _set_uid(self):
-        if 'CATENAE_DOCKER' in environ and bool(environ['CATENAE_DOCKER']):
+        if environ.get('CATENAE_DOCKER', '').lower() in ('1', 'true', 'yes'):
             self._config['uid'] = environ['HOSTNAME']
         else:
             self._config['uid'] = utils.get_uid()
@@ -458,7 +509,7 @@ class Link:
                 result, stopover.Response
             ) else result
 
-            if output:
+            if output is not None:
                 if self.config['default_output_stream']:
                     self.stopover.put(
                         output, self.config['default_output_stream']
@@ -474,6 +525,7 @@ class Link:
 
     def _rpc_notify_handler(self):
         no_messages = True
+        retry = False
         for input_stream in self.config['rpc_topics']:
             message = None
             try:
@@ -486,57 +538,64 @@ class Link:
 
             call = message.value
             no_messages = False
+            context = call.get('context') if isinstance(call, dict) else None
+            own_message = isinstance(context, dict) and context.get('uid') == self.uid
+            if not own_message and self._rpc_notify(call) is False:
+                retry = True
+                continue
             try:
-                if 'context' not in call or call['context']['uid'] != self.uid:
-                    self._rpc_notify(call)
-            except (KeyError, TypeError):
-                pass
-            finally:
                 self.stopover.commit(message, self.uid)
+            except Exception:
+                retry = True
+                self.logger.log('RPC acknowledgement failed; retaining message', level='exception')
 
-        if no_messages:
+        if no_messages or retry:
             time.sleep(self.config['no_messages_sleep_interval'])
 
     def _rpc_notify(self, call):
-        method = call['method']
+        method = call.get('method') if isinstance(call, dict) else None
 
-        if 'args' not in call:
-            call['args'] = []
+        if not isinstance(method, str):
+            self.logger.log('invalid RPC invocation', level='error')
+            return True
 
-        if 'kwargs' not in call:
-            call['kwargs'] = {}
-
-        if 'context' not in call:
-            call['context'] = {'uid': None, 'group': None}
-
-        if method not in _rpc_enabled_methods:
+        allowed = getattr(type(self), method, None)
+        if not getattr(allowed, '_catenae_rpc_enabled', False):
             self.logger.log(f'method {method} cannot be called', level='error')
-            return
+            return True
 
-        if 'method' not in call:
-            self.logger.log(f'invalid RPC invocation: {call}', level='error')
-            return
+        context = call.get('context', {'uid': None, 'group': None})
+        args, kwargs = call.get('args', []), call.get('kwargs', {})
+        if not isinstance(context, dict) or not isinstance(args, list) or not isinstance(kwargs, dict):
+            self.logger.log('invalid RPC arguments', level='error')
+            return True
+        target = getattr(self, method)
+        try:
+            signature(target).bind(context, *args, **kwargs)
+        except TypeError:
+            self.logger.log(f'invalid arguments for RPC {method}', level='error')
+            return True
 
         try:
-            context = call['context']
-            args = [context] + call['args']
-            kwargs = call['kwargs']
             self.logger.log(
-                f"RPC invocation from {context['uid']} ({context['group']})",
+                f"RPC invocation from {context.get('uid')} ({context.get('group')})",
                 level='debug'
             )
             with self._locks['rpc_lock']:
-                getattr(self, call['method'])(*args, **kwargs)
+                target(context, *args, **kwargs)
 
         except Exception:
             self.logger.log(
                 f'error when invoking {method} remotely', level='exception'
             )
+            return False
+        return True
 
     @suicide_on_error
     def _loop_task(self, target, args, kwargs, interval, wait):
-        if wait:
-            time.sleep(interval)
+        thread = current_thread()
+        if wait and thread.wait(interval):
+            return
 
         if args is None:
             args = []
@@ -547,18 +606,14 @@ class Link:
         if kwargs is None:
             kwargs = {}
 
-        while not current_thread().will_stop:
-            start_timestamp = utils.get_timestamp()
-
+        while not thread.will_stop:
+            start_timestamp = time.monotonic()
+            thread.iteration_started = start_timestamp
             target(*args, **kwargs)
-
-            while not current_thread().will_stop:
-                continue_sleeping = (
-                    utils.get_timestamp() - start_timestamp
-                ) < interval
-                if not continue_sleeping:
-                    break
-                time.sleep(self.config['intervals']['loop_check_stop'])
+            thread.iteration_started = None
+            remaining = interval - (time.monotonic() - start_timestamp)
+            if remaining > 0:
+                thread.wait(remaining)
 
     def _setup_signals_handler(self):
         for signal_name in ['SIGINT', 'SIGTERM', 'SIGQUIT']:
