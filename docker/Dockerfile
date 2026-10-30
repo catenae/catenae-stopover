@@ -9,7 +9,7 @@
 # /opt/catenae/src (`can't open file '/opt/catenae/setup.py'`). build.sh now
 # tars src/ directly, and `stopover` is pinned instead of `pip install -U`.
 
-FROM python:3.14.8-alpine3.24@sha256:8acac70227ce3b34da9453120c375cc5b66cd0b062d4dc6bc74286f81a3819e1
+FROM python:3.14.10-alpine3.24@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2
 
 # The pinned base includes current Alpine security updates. Re-pin to a new
 # image digest when refreshing OS packages instead of an unbounded upgrade.
@@ -21,7 +21,7 @@ RUN \
     "stopover==2.2610.0" \
     "binnakle==2.2610.0" \
     "falcon==4.4.0" \
-    "setuptools==84.0.0" \
+    "setuptools>=84.2.1,<85" \
     "wheel==0.48.0" \
     && pip install --no-cache-dir --no-compile --no-build-isolation . \
     && rm -rf /root/.cache/pip \
