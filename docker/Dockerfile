@@ -1,32 +1,22 @@
-# Catenae link image for Stopover.
-#
-# Replaces catenae/foundation-stopover (Ubuntu 20.04 EOL, Python 3.9, and the
-# legacy python-rocksdb 0.7.0 / easyrocks 0.0.15a0 stack it dragged in) with a
-# digest-pinned Alpine image.
-#
-# The previous Dockerfile could not build: it ran `python setup.py install`
-# from /opt/catenae while the tar unpacked the sources under
-# /opt/catenae/src (`can't open file '/opt/catenae/setup.py'`). build.sh now
-# tars src/ directly, and `stopover` is pinned instead of `pip install -U`.
+FROM registry.opensuse.org/opensuse/tumbleweed:latest@sha256:c6a30f005bf3444ef1ca02f49a0c34ee539b3299f948f1ecaf633e5b12dd2490 AS base
+# Maintainer RPMs carry the TLS/TAR fixes ahead of the stable snapshot.
+RUN zypper --non-interactive addrepo --priority 120 https://download.opensuse.org/repositories/devel:/languages:/python:/Factory/openSUSE_Tumbleweed/ python-factory
+# Require the maintained Expat amplification fix.
+RUN zypper --non-interactive addrepo --priority 120 https://download.opensuse.org/repositories/devel:/libraries:/c_c++/openSUSE_Factory/ libraries-devel
+RUN zypper --non-interactive --gpg-auto-import-keys refresh \
+    && zypper --non-interactive install --no-recommends ca-certificates 'python314>=3.14.10' 'python314-base>=3.14.10' 'python314-dbm>=3.14.10' libstdc++6 'libexpat1>=2.10.0' \
+    && zypper clean --all
+ENV PATH="/opt/venv/bin:${PATH}" PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1
 
-FROM python:3.14.10-alpine3.24@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2
+FROM base AS pypkgs
+RUN zypper --non-interactive refresh \
+    && zypper --non-interactive install --no-recommends python314-pip \
+    && zypper clean --all
+RUN python3.14 -m venv --system-site-packages --without-pip /opt/venv
+ADD catenae.tar /src
+RUN python -m pip install --no-compile --only-binary=google-crc32c,pymongo,rocksdict /src && python -m pip check
 
-# The pinned base includes current Alpine security updates. Re-pin to a new
-# image digest when refreshing OS packages instead of an unbounded upgrade.
-
-WORKDIR /opt/catenae
-ADD catenae.tar /opt/catenae
-RUN \
-    pip install --no-cache-dir \
-    "stopover==2.2610.0" \
-    "binnakle==2.2610.0" \
-    "falcon==4.4.0" \
-    "setuptools>=84.2.1,<85" \
-    "wheel==0.48.0" \
-    && pip install --no-cache-dir --no-compile --no-build-isolation . \
-    && rm -rf /root/.cache/pip \
-    && find /usr/local -type d -name __pycache__ -exec rm -r {} \+ \
-    && rm -rf /usr/local/lib/python3.14/site-packages/wheel* \
-    /usr/local/lib/python3.14/site-packages/pip \
-    /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
-    /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.14 /usr/local/bin/wheel
+FROM base
+COPY --from=pypkgs /opt/venv /opt/venv
+WORKDIR /opt/stopover
+CMD ["python"]
