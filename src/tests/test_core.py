@@ -194,6 +194,51 @@ class CoreTests(unittest.TestCase):
                           link.stopover.commit.call_args_list],
                          [messages[0], messages[1], messages[1], messages[2]])
 
+    def test_knock_loop_survives_a_stopover_restart(self):
+        link = Link(enable_health=False)
+        link.logger = SimpleNamespace(log=Mock())
+        link.suicide = Mock()
+        down = Event()
+        down.set()
+
+        def knock(receiver_group):
+            if down.is_set():
+                raise ConnectionError('stopover restarting')
+
+        link.stopover = SimpleNamespace(knock=Mock(side_effect=knock))
+        thread = link.loop(link._knock, interval=0.01)
+        try:
+            deadline = time.monotonic() + 2
+            knock = link.stopover.knock
+            while knock.call_count < 5 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(thread.is_alive())
+            down.clear()
+            calls = knock.call_count
+            while knock.call_count < calls + 3 and \
+                    time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(thread.is_alive())
+        finally:
+            thread.stop()
+            thread.join(2)
+        link.suicide.assert_not_called()
+        messages = [call.args[0] for call in link.logger.log.call_args_list]
+        # One warning when lost and one notice when back, not one per attempt.
+        lost = [m for m in messages if m.startswith('Stopover unreachable')]
+        self.assertEqual(len(lost), 1)
+        self.assertEqual(messages.count('Stopover reachable again'), 1)
+
+    def test_start_knocks_through_the_tolerant_loop(self):
+        link = Link(input_stream='in', enable_health=False)
+        link.stopover = SimpleNamespace(knock=Mock(),
+                                        get=Mock(return_value=None))
+        with patch.object(link, 'loop') as loop:
+            link.start(embedded=True, startup_text='local test')
+        targets = [call.args[0] for call in loop.call_args_list]
+        self.assertIn(link._knock, targets)
+        self.assertNotIn(link.stopover.knock, targets)
+
     def test_default_intervals_do_not_leak_between_links(self):
         first = Link(enable_health=False)
         second = Link(enable_health=False)

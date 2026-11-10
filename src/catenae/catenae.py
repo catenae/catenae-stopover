@@ -159,6 +159,7 @@ class Link:
             self.stopover = None
 
         self._threads = []
+        self._stopover_reachable = True
         self._locks = {
             'threads': Lock(),
             'start_stop': Lock(),
@@ -346,11 +347,7 @@ class Link:
             if hasattr(self, 'transform'):
                 self.loop(self._transform)
 
-            self.loop(
-                self.stopover.knock,
-                kwargs={'receiver_group': self.config['receiver_group']},
-                interval=5
-            )
+            self.loop(self._knock, interval=5)
 
         self._setup_complete = True
 
@@ -363,6 +360,21 @@ class Link:
 
     def stop(self):
         pass
+
+    def _knock(self):
+        # A Stopover restart must not stop the link: report it, keep knocking.
+        try:
+            self.stopover.knock(
+                receiver_group=self.config['receiver_group'])
+        except Exception as error:
+            if self._stopover_reachable:
+                self._stopover_reachable = False
+                self.logger.log(f'Stopover unreachable, retrying: {error}',
+                                level='warning')
+            return
+        if not self._stopover_reachable:
+            self._stopover_reachable = True
+            self.logger.log('Stopover reachable again')
 
     def send(self, message, stream: str = None):
         stream = self.config['default_output_stream'
