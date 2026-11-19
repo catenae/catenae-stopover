@@ -1,7 +1,7 @@
 # Exact dependencies for the library image; regenerate when setup.py ranges change.
-binnakle==2.2610.0 \
-    --hash=sha256:0ad1d8533959cbf1c31bbdbba993056fde5e63c682fcc37c380460835eabe6e1 \
-    --hash=sha256:b9770c10d48469121f8b4fb914a0807ad9ffc21b3465b77a12f488ed5a16b0a2
+binnakle==3.2610.1 \
+    --hash=sha256:669e9b763028188803d6a689c2da529c90e17c1ea1e319688e05a8314e66a6e4 \
+    --hash=sha256:d1d4762bbe23065c288c0271c86f273c54a68a860a53359ee85fa2e3d427ceb0
 certifi==2026.10.23 \
     --hash=sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd \
     --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
